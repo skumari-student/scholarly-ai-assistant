@@ -98,7 +98,9 @@ export const updateSection = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const patch: { content?: string; outline?: string; updated_at: string } = {
+      updated_at: new Date().toISOString(),
+    };
     if (data.content !== undefined) patch.content = data.content;
     if (data.outline !== undefined) patch.outline = data.outline;
     const { error } = await context.supabase.from("sections").update(patch).eq("id", data.id);

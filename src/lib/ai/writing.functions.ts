@@ -23,9 +23,7 @@ const schema = z.object({
 });
 
 async function logUsage(
-  supabase: ReturnType<typeof requireSupabaseAuth>["_types"] extends never
-    ? any
-    : any,
+  supabase: any,
   project_id: string,
   user_id: string,
   kind: string,
@@ -33,6 +31,7 @@ async function logUsage(
 ) {
   await supabase.from("ai_usage").insert({ project_id, user_id, kind, model });
 }
+
 
 export const runWritingAction = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
