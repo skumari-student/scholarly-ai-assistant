@@ -58,10 +58,10 @@ function Landing() {
           </p>
           <div className="mt-8 flex gap-3">
             <Link
-              to="/auth"
+              to={ctaTo}
               className="rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
-              Start writing
+              {signedIn ? "Open dashboard" : "Start writing"}
             </Link>
           </div>
         </section>
