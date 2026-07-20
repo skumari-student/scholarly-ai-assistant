@@ -14,7 +14,328 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      ai_usage: {
+        Row: {
+          created_at: string
+          id: string
+          input_tokens: number | null
+          kind: string
+          model: string | null
+          output_tokens: number | null
+          project_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_tokens?: number | null
+          kind: string
+          model?: string | null
+          output_tokens?: number | null
+          project_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_tokens?: number | null
+          kind?: string
+          model?: string | null
+          output_tokens?: number | null
+          project_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      journal_suggestions: {
+        Row: {
+          audience: string | null
+          created_at: string
+          id: string
+          name: string
+          notes: string | null
+          open_access: string | null
+          pinned: boolean
+          project_id: string
+          requirements: string | null
+          scope: string | null
+        }
+        Insert: {
+          audience?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          notes?: string | null
+          open_access?: string | null
+          pinned?: boolean
+          project_id: string
+          requirements?: string | null
+          scope?: string | null
+        }
+        Update: {
+          audience?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          open_access?: string | null
+          pinned?: boolean
+          project_id?: string
+          requirements?: string | null
+          scope?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "journal_suggestions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          citation_style: string
+          context_notes: string | null
+          created_at: string
+          discipline: string | null
+          doc_type: string
+          id: string
+          language_level: string
+          mode: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          citation_style?: string
+          context_notes?: string | null
+          created_at?: string
+          discipline?: string | null
+          doc_type: string
+          id?: string
+          language_level?: string
+          mode?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          citation_style?: string
+          context_notes?: string | null
+          created_at?: string
+          discipline?: string | null
+          doc_type?: string
+          id?: string
+          language_level?: string
+          mode?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      refs: {
+        Row: {
+          authors: string
+          cite_key: string
+          container: string | null
+          created_at: string
+          doi: string | null
+          id: string
+          project_id: string
+          publisher: string | null
+          title: string
+          url: string | null
+          year: number | null
+        }
+        Insert: {
+          authors: string
+          cite_key: string
+          container?: string | null
+          created_at?: string
+          doi?: string | null
+          id?: string
+          project_id: string
+          publisher?: string | null
+          title: string
+          url?: string | null
+          year?: number | null
+        }
+        Update: {
+          authors?: string
+          cite_key?: string
+          container?: string | null
+          created_at?: string
+          doi?: string | null
+          id?: string
+          project_id?: string
+          publisher?: string | null
+          title?: string
+          url?: string | null
+          year?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "refs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sections: {
+        Row: {
+          content: string
+          id: string
+          key: string
+          order: number
+          outline: string | null
+          project_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          content?: string
+          id?: string
+          key: string
+          order?: number
+          outline?: string | null
+          project_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          id?: string
+          key?: string
+          order?: number
+          outline?: string | null
+          project_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      topics: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          pinned: boolean
+          project_id: string
+          research_questions: string | null
+          title: string
+          trend_note: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          pinned?: boolean
+          project_id: string
+          research_questions?: string | null
+          title: string
+          trend_note?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          pinned?: boolean
+          project_id?: string
+          research_questions?: string | null
+          title?: string
+          trend_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "topics_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      voice_transcripts: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          project_id: string
+          section_id: string | null
+          text: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          project_id: string
+          section_id?: string | null
+          text: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          project_id?: string
+          section_id?: string | null
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voice_transcripts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voice_transcripts_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
