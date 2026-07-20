@@ -1,0 +1,167 @@
+import { useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Mic, Square, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+
+// Records mic audio via Web Audio and encodes a 16kHz mono WAV, then streams it to /api/stt.
+export function VoiceCapture({ onTranscript }: { onTranscript: (text: string) => void }) {
+  const [state, setState] = useState<"idle" | "recording" | "processing">("idle");
+  const ctxRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const nodeRef = useRef<ScriptProcessorNode | null>(null);
+  const srcRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const chunksRef = useRef<Float32Array[]>([]);
+
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const ctx = new AudioContext();
+      ctxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      srcRef.current = src;
+      const node = ctx.createScriptProcessor(4096, 1, 1);
+      nodeRef.current = node;
+      chunksRef.current = [];
+      node.onaudioprocess = (e) => {
+        chunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      src.connect(node);
+      node.connect(ctx.destination);
+      setState("recording");
+    } catch (e) {
+      toast.error("Microphone access denied");
+    }
+  }
+
+  async function stop() {
+    setState("processing");
+    try {
+      const ctx = ctxRef.current!;
+      nodeRef.current?.disconnect();
+      srcRef.current?.disconnect();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      const sampleRate = ctx.sampleRate;
+      const chunks = chunksRef.current;
+      await ctx.close();
+      const wav = encodeWav(chunks, sampleRate, 16000);
+      if (wav.size < 2048) {
+        toast.error("Recording was too short");
+        setState("idle");
+        return;
+      }
+      const form = new FormData();
+      form.append("file", wav, "recording.wav");
+      const res = await fetch("/api/stt", { method: "POST", body: form });
+      if (!res.ok || !res.body) {
+        toast.error("Transcription failed");
+        setState("idle");
+        return;
+      }
+      // SSE stream: collect deltas + final text
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let full = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          const line = ev.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const obj = JSON.parse(payload);
+            if (obj.type === "transcript.text.done" && obj.text) full = obj.text;
+            else if (obj.type === "transcript.text.delta" && obj.delta && !full) full += obj.delta;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (full) onTranscript(full);
+      else toast.error("No transcript returned");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Recording failed");
+    } finally {
+      setState("idle");
+    }
+  }
+
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={state === "recording" ? stop : start} disabled={state === "processing"}>
+      {state === "recording" ? (
+        <>
+          <Square className="mr-2 h-4 w-4 text-red-500" /> Stop
+        </>
+      ) : state === "processing" ? (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Transcribing…
+        </>
+      ) : (
+        <>
+          <Mic className="mr-2 h-4 w-4" /> Dictate
+        </>
+      )}
+    </Button>
+  );
+}
+
+function encodeWav(chunks: Float32Array[], sourceRate: number, targetRate: number): Blob {
+  const merged = mergeChunks(chunks);
+  const downsampled = targetRate === sourceRate ? merged : downsample(merged, sourceRate, targetRate);
+  const buffer = new ArrayBuffer(44 + downsampled.length * 2);
+  const view = new DataView(buffer);
+  writeStr(view, 0, "RIFF");
+  view.setUint32(4, 36 + downsampled.length * 2, true);
+  writeStr(view, 8, "WAVE");
+  writeStr(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, targetRate, true);
+  view.setUint32(28, targetRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(view, 36, "data");
+  view.setUint32(40, downsampled.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < downsampled.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, downsampled[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function mergeChunks(chunks: Float32Array[]): Float32Array {
+  const total = chunks.reduce((a, c) => a + c.length, 0);
+  const out = new Float32Array(total);
+  let o = 0;
+  for (const c of chunks) {
+    out.set(c, o);
+    o += c.length;
+  }
+  return out;
+}
+
+function downsample(buffer: Float32Array, sourceRate: number, targetRate: number): Float32Array {
+  const ratio = sourceRate / targetRate;
+  const newLength = Math.floor(buffer.length / ratio);
+  const result = new Float32Array(newLength);
+  for (let i = 0; i < newLength; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.floor((i + 1) * ratio);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += buffer[j];
+    result[i] = sum / (end - start);
+  }
+  return result;
+}
+
+function writeStr(view: DataView, offset: number, s: string) {
+  for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+}
