@@ -20,6 +20,16 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSignedIn(!!session);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  const ctaTo = signedIn ? "/dashboard" : "/auth";
+  const ctaLabel = signedIn ? "Open dashboard" : "Sign in";
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
@@ -29,10 +39,10 @@ function Landing() {
             ScholarlyWrite AI
           </div>
           <Link
-            to="/auth"
+            to={ctaTo}
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
-            Sign in
+            {ctaLabel}
           </Link>
         </div>
       </header>
