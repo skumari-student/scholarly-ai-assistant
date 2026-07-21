@@ -1292,6 +1292,14 @@ function JournalsPanel({ projectId, journals, onRefresh }: { projectId: string; 
                 {j.requirements && <div className="mt-1"><b>Requirements:</b> {j.requirements}</div>}
                 {j.open_access && <div className="mt-1"><b>OA:</b> {j.open_access}</div>}
                 {j.notes && <div className="mt-1 text-muted-foreground">{j.notes}</div>}
+                <a
+                  href={j.url && /^https?:\/\//.test(j.url) ? j.url : `https://scholar.google.com/scholar?q=${encodeURIComponent(j.name)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" /> Verify on journal's website
+                </a>
               </div>
               <div className="flex flex-col gap-1">
                 <Button size="icon" variant="ghost" onClick={async () => { await pin({ data: { id: j.id, pinned: !j.pinned } }); onRefresh(); }}>
