@@ -104,10 +104,10 @@ function DatasetsPanel({ projectId, datasets, onChange }: { projectId: string; d
       let text_content: string | undefined;
       let inline_csv: string | undefined;
       if (file) {
-        const { path, uploadUrl, token } = await createUrl({ data: { project_id: projectId, filename: file.name } } as any);
+        const { path, token } = await createUrl({ data: { project_id: projectId, name: file.name } });
         const { error } = await supabase.storage.from("project-uploads").uploadToSignedUrl(path, token, file);
         if (error) throw new Error(error.message);
-        const up = await record({ data: { project_id: projectId, path, name: file.name, mime: file.type, size: file.size, kind: "file" } } as any);
+        const up = await record({ data: { project_id: projectId, path, name: file.name, mime: file.type || "application/octet-stream", size: file.size } });
         upload_id = (up as any).id;
       } else if (kind === "qual") {
         text_content = inline;
