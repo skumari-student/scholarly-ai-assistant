@@ -38,20 +38,6 @@ async function logUsage(
 
 const LIT_REVIEW_KEYS = new Set(["literature", "lit_review", "literature_review", "themes"]);
 
-function referenceLibraryBlock(refs: Reference[], style: CitationStyle): string {
-  return refs
-    .slice(0, 50)
-    .map((r, index) => {
-      return `- ${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`;
-    })
-    .join("\n");
-}
-
-async function loadProjectRefs(supabase: any, projectId: string): Promise<Reference[]> {
-  const { data } = await supabase.from("refs").select("*").eq("project_id", projectId).order("created_at");
-  return (data ?? []) as Reference[];
-}
-
 export const runWritingAction = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => schema.parse(d))
@@ -72,9 +58,14 @@ export const runWritingAction = createServerFn({ method: "POST" })
 
     const style = project.citation_style as CitationStyle;
     if ((data.intensive && isLitReview) || data.action === "cite") {
-      const refs = await loadProjectRefs(supabase, project.id);
+      const { data: refsData } = await supabase.from("refs").select("*").eq("project_id", project.id).order("created_at");
+      const refs = (refsData ?? []) as Reference[];
       if (refs && refs.length) {
-        refsBlock = `\n\nReference library (use these sources only; do not invent references):\n${referenceLibraryBlock(refs, style)}\n\nFormatted reference list:\n${formatReferenceList(refs, style)}`;
+        const referenceLibraryBlock = refs
+          .slice(0, 50)
+          .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
+          .join("\n");
+        refsBlock = `\n\nReference library (use these sources only; do not invent references):\n${referenceLibraryBlock}\n\nFormatted reference list:\n${formatReferenceList(refs, style)}`;
         intensiveDirective = data.action === "cite"
           ? ` Add accurate in-text citations in ${project.citation_style} style across the section using only the reference library. Do not add sources that are not listed. If a claim cannot be supported by the library, mark it [citation needed] instead of inventing a source.`
           : ` Use INTENSIVE citation: weave 2-4 references from the reference library into every paragraph as synthesis (compare/contrast/build), not one-source summaries. Every claim needs an in-text citation in ${project.citation_style} style. Never fabricate a citation outside the library.`;
@@ -123,7 +114,8 @@ export const citeAllSections = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: project, error: pError } = await supabase.from("projects").select("*").eq("id", data.project_id).single();
     if (pError || !project) throw new Error("Project not found");
-    const refs = await loadProjectRefs(supabase, data.project_id);
+    const { data: refsData } = await supabase.from("refs").select("*").eq("project_id", data.project_id).order("created_at");
+    const refs = (refsData ?? []) as Reference[];
     if (!refs.length) throw new Error("Add or import references before citing all sections.");
     const { data: sections, error: sError } = await supabase
       .from("sections")
@@ -134,7 +126,10 @@ export const citeAllSections = createServerFn({ method: "POST" })
 
     const model = pickModel(project.mode);
     const style = project.citation_style as CitationStyle;
-    const refsBlock = referenceLibraryBlock(refs, style);
+    const refsBlock = refs
+      .slice(0, 50)
+      .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
+      .join("\n");
     let updated = 0;
     for (const section of sections ?? []) {
       if (!section.content?.trim()) continue;
