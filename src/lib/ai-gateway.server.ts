@@ -74,14 +74,15 @@ export async function chat(opts: ChatOptions): Promise<string> {
   const model = opts.model ?? "google/gemini-3.5-flash";
   const gateway = createLovableAiGatewayProvider(key);
   try {
-    const result = await generateText({
+    const base = {
       model: gateway(model),
       system: opts.system,
-      prompt: opts.messages ? undefined : opts.prompt ?? "",
-      messages: opts.messages,
       temperature: opts.temperature,
       maxOutputTokens: opts.maxOutputTokens,
-    });
+    };
+    const result = opts.messages
+      ? await generateText({ ...base, messages: opts.messages })
+      : await generateText({ ...base, prompt: opts.prompt ?? "" });
     return result.text ?? "";
   } catch (error) {
     throw new Error(normalizeGatewayError(error));
