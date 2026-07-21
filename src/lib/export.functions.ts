@@ -97,6 +97,8 @@ export const exportProject = createServerFn({ method: "POST" })
       for (const s of sections) {
         parts.push(`## ${s.title}\n\n${s.content || "_(empty)_"}\n`);
       }
+      const vMd = visualsMd();
+      if (vMd) parts.push(vMd);
       if (refs.length) parts.push(`## References\n\n${formatReferenceList(refs, style)}\n`);
       const md = parts.join("\n");
       return {
