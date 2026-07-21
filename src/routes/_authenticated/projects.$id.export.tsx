@@ -71,7 +71,7 @@ function ExportPage() {
           },
         });
         const bytes = base64ToBytes(r.contentB64);
-        const blob = new Blob([bytes], { type: r.mime });
+        const blob = new Blob([bytes as BlobPart], { type: r.mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
