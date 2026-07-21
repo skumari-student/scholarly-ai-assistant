@@ -55,6 +55,146 @@ export type Database = {
           },
         ]
       }
+      datasets: {
+        Row: {
+          columns: Json
+          created_at: string
+          id: string
+          kind: string
+          name: string
+          project_id: string
+          row_count: number
+          sample: Json
+          source: string
+          text_content: string | null
+          updated_at: string
+          upload_id: string | null
+          user_id: string
+        }
+        Insert: {
+          columns?: Json
+          created_at?: string
+          id?: string
+          kind?: string
+          name: string
+          project_id: string
+          row_count?: number
+          sample?: Json
+          source?: string
+          text_content?: string | null
+          updated_at?: string
+          upload_id?: string | null
+          user_id: string
+        }
+        Update: {
+          columns?: Json
+          created_at?: string
+          id?: string
+          kind?: string
+          name?: string
+          project_id?: string
+          row_count?: number
+          sample?: Json
+          source?: string
+          text_content?: string | null
+          updated_at?: string
+          upload_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "datasets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "datasets_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      journal_cache: {
+        Row: {
+          fetched_at: string
+          issn: string
+          payload: Json
+          source: string
+        }
+        Insert: {
+          fetched_at?: string
+          issn: string
+          payload?: Json
+          source: string
+        }
+        Update: {
+          fetched_at?: string
+          issn?: string
+          payload?: Json
+          source?: string
+        }
+        Relationships: []
+      }
+      journal_shortlist: {
+        Row: {
+          created_at: string
+          fit: Json | null
+          homepage: string | null
+          id: string
+          issn: string
+          notes: string
+          order: number
+          project_id: string
+          publisher: string | null
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          fit?: Json | null
+          homepage?: string | null
+          id?: string
+          issn: string
+          notes?: string
+          order?: number
+          project_id: string
+          publisher?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          fit?: Json | null
+          homepage?: string | null
+          id?: string
+          issn?: string
+          notes?: string
+          order?: number
+          project_id?: string
+          publisher?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "journal_shortlist_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       journal_suggestions: {
         Row: {
           audience: string | null
@@ -311,6 +451,56 @@ export type Database = {
             foreignKeyName: "sections_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      submissions: {
+        Row: {
+          checklist: Json
+          cover_letter: string
+          created_at: string
+          package: Json
+          project_id: string
+          status: string
+          submitted_at: string | null
+          target_issn: string | null
+          target_title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          checklist?: Json
+          cover_letter?: string
+          created_at?: string
+          package?: Json
+          project_id: string
+          status?: string
+          submitted_at?: string | null
+          target_issn?: string | null
+          target_title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          checklist?: Json
+          cover_letter?: string
+          created_at?: string
+          package?: Json
+          project_id?: string
+          status?: string
+          submitted_at?: string | null
+          target_issn?: string | null
+          target_title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "submissions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },

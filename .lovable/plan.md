@@ -1,83 +1,122 @@
-## Phase 1.2 — Analysis & Visuals
 
-Rename the existing **Visuals** tab to **Analysis & Visuals** and extend it with a data-upload path, richer chart preview, and export attachment. Reuse the existing `generateVisual` + `runVoiceCommand` pipelines to keep credits low.
+## Phase 2 — Data Lab, Journal Intelligence, Submission Assistant
 
-### 1. Server: data parsing + analysis
+Builds on the stable Phase 1.2 workspace. Reuses the existing `analyzeDataset`, `project_visuals`, `refs`, `uploads`, `pickModel`, `chatJSON`, and `VoiceCapture` primitives. No changes to auth or editor shell.
 
-- New `src/lib/analysis.server.ts`:
-  - `parseCsv(text)` — tiny CSV parser (quoted fields, commas/tabs, first row = headers).
-  - `parseXlsx(bytes)` — use existing `xlsx` capability via lazy `await import("xlsx")` inside handler; add to deps.
-  - Returns `{ columns: string[]; rows: (string|number)[][]; rowCount; sample }` with rows capped at 200 and 20 columns to bound prompts.
-- New `src/lib/ai/analysis.functions.ts`:
-  - `analyzeDataset({ project_id, upload_id? , inline_csv? , prompt? })` — loads file from `uploads` bucket (or inline paste), parses it, sends a **summary + sample** (max ~40 rows) to AI with a strict JSON schema:
-    ```
-    { summary, keyFindings[], recommendedCharts:[{title,type:'bar'|'line'|'pie'|'scatter',x,y,rationale,data:[{label,value,series?}]}], table:{title,columns,rows}, citations[] }
-    ```
-    Uses `pickModel(project.mode)` and `chatJSON`, plus `project.refs` list so the AI can suggest existing citations.
-  - `analyzeSectionText({ project_id, section_id, prompt? })` — same output shape, source = section outline+draft; encourages "as reported by [Author, Year]" wording using project refs.
+---
 
-### 2. Chart rendering
+### 1. Data Lab (quant + qual)
 
-- Extend `VisualPreview` (already uses Recharts `BarChart`) with `LineChart`, `PieChart`, `ScatterChart`. Chart type comes from the AI response.
-- New `<DatasetChart chart={rec}>` renders a single suggested chart card with title, rationale, data-fields chip, and preview.
+A dedicated `/projects/$id/lab` route (sibling of `/export`), plus a **Data Lab** tab in the workspace right panel that deep-links into it.
 
-### 3. UI: Analysis & Visuals panel
+**Datasets**
+- New table `datasets` (project_id, upload_id nullable, name, source: `upload|paste|section`, columns jsonb, row_count, sample jsonb, kind: `quant|qual|mixed`, created_at).
+- Reuse `project-uploads` bucket + `uploads` table. On upload of `.csv/.xlsx/.txt/.docx`, prompt user to "Add to Data Lab" — creates a `datasets` row via server fn (`registerDataset`) that runs the existing `parseCsv`/`parseXlsx` (extend `analysis.server.ts` with `parseTextCorpus` for qual).
+- List, rename, delete datasets. Preview first 20 rows.
 
-Rewrite `VisualsPanel` (kept in same file) as a tabbed sub-panel:
+**Quantitative analyses** (server fn `runQuantAnalysis` — one AI call + deterministic compute in the worker):
+- Descriptive stats (mean, median, sd, min/max, quartiles, missing count) — computed in JS (no AI).
+- Correlation matrix (Pearson) — computed in JS; AI writes interpretation paragraph.
+- Group comparison (t-test / Mann-Whitney approximation) — compute stats in JS; AI narrates.
+- Simple linear regression (single predictor) — closed-form OLS in JS; AI narrates.
+- Frequency tables + crosstabs — JS.
+- Each result stored as a `project_visuals` row (kind `analysis:quant`) with payload `{ method, inputs, stats, chart, narrative, citations[] }` so it flows into existing export pipeline.
 
-- **Sub-tab "Text"** — current behaviour (kind selector + prompt + generate single visual). Keep as-is.
-- **Sub-tab "Data"** — new:
-  - Source picker: **This section's text** | **Upload data file** | **Paste CSV**.
-  - Upload uses existing `createUploadUrl`/`listUploads` (project-uploads bucket, accepts `.csv,.xlsx,.xls`). Show list of uploaded data files with "Analyze" button.
-  - Paste CSV textarea (fast path, no upload).
-  - "Summarize data & propose visuals" button → calls `analyzeDataset`.
-  - Result card: summary text, key findings bullets, rendered HTML table, and a grid of chart previews (one card per recommended chart). Each card has:
-    - **Insert description** — inserts a text block (title + caption + which refs cited) into the current section.
-    - **Insert table (markdown)** — inserts markdown table into section.
-    - **Attach to export** — persists a `visual` row (see #5) so it appears in the export.
-- Dictation mic at top of Data sub-tab: reuse `VoiceCapture` → `extractFromNarration` (already in project) to fill the prompt/`variables` field; long narration becomes analysis request.
+**Qualitative analyses** (server fn `runQualAnalysis`):
+- Input: pasted transcript, `.txt`/`.docx` upload, or a section's draft.
+- AI passes (single call each, Flash by default):
+  - **Code + theme extraction** → returns `{ codes:[{name,definition,evidence:[{quote,source}]}], themes:[{name,rationale,codes[]}] }`.
+  - **Sentiment / stance summary** for interview-like data.
+  - **Comparative matrix** across multiple documents (participant × theme grid, rendered as table).
+- Store as `project_visuals` (kind `analysis:qual`).
 
-### 4. Persistence: attached visuals
+**Mixed-methods** view: pick one quant + one qual result and generate a joint discussion paragraph (`synthesizeMixed`, AI, cites `refs`).
 
-- Small new table `project_visuals` (project_id, section_id nullable, kind, title, caption, payload jsonb, order, timestamps) with RLS `auth.uid() = user_id` via project ownership. Migration will include GRANT + policies.
-- Server fns: `listVisuals(project_id)`, `attachVisual(payload)`, `deleteVisual(id)`.
-- Not persisting chart images — payload holds the JSON so export can re-emit the markdown/table.
+**Reusable UI**: extend `DatasetChart` with box/whisker (approx via Recharts Bar+ErrorBar) and heatmap (Recharts custom cells) for correlation matrices.
 
-### 5. Export integration (light)
+---
 
-- `src/lib/export.functions.ts` — when a project has attached visuals, append **"## Visuals & Analysis"** to Markdown, HTML, and DOCX outputs. For each visual: title, caption, markdown table (rendered as real table in DOCX/HTML), and a short "Suggested chart: <type> of <x> vs <y>" line. No chart drawing.
+### 2. Journal Intelligence (Scopus + reputed platforms)
 
-### 6. Housekeeping
+Upgrade Phase 1's AI-only journal suggestions into a data-backed recommender.
 
-- Rename tab label to **"Analysis"** in the TabsList (keeps `value="visuals"` for stability).
-- Add `xlsx` to package.json.
-- Reuse existing `uploads` table (kind already covers files); no schema change there.
+**Data providers** (all opt-in, gracefully degrade):
+- **OpenAlex** (no key) — primary free source for journal metadata, works, and 2yr mean citedness (proxy for impact).
+- **Crossref** (no key) — journal existence, ISSN, publisher, recent articles for scope match.
+- **DOAJ** (no key) — open-access indexing + APC info.
+- **Scopus** via Elsevier API — behind an optional `SCOPUS_API_KEY` secret. Ask user via `add_secret` only when they enable "Use Scopus". No hardcoded key.
 
-### Technical notes
+Add secrets flow: on first click of "Enable Scopus", explain what's needed and where to get it, then request `SCOPUS_API_KEY` through `add_secret`. Everything else works without any secret.
+
+**Server functions** (all `requireSupabaseAuth`):
+- `searchJournals({ project_id, query?, useScopus? })` — builds a query from project title + abstract + top keywords, calls providers in parallel, deduplicates by ISSN, and ranks by a scoring blend (topic-match via embeddings-free lexical + AI relevance rerank on the top 25, plus impact proxy and open-access preference).
+- `getJournalProfile({ issn })` — cached profile: aims/scope (AI summary of homepage + recent titles), acceptance signals, APC, average time-to-decision if published, indexing (Scopus/DOAJ/PubMed flags), publisher, ISSN, homepage/submission URLs.
+- `fitCheck({ project_id, issn })` — AI reads project abstract + section titles vs. journal profile and returns `{ score, reasons[], risks[], suggestedEdits[] }`.
+
+**Storage**
+- New table `journal_cache` (issn PK, source, payload jsonb, fetched_at) — 30-day TTL, keyed lookups; keeps API calls low.
+- New table `journal_shortlist` (project_id, issn, notes, status: `considering|target|submitted|rejected|accepted`, order).
+
+**UI** — rewrite existing Journals tab:
+- Search bar + filters (open access, region, indexing, min impact).
+- Result cards: title, publisher, indexing badges (Scopus/DOAJ/PubMed), impact proxy, APC, fit score with "Why".
+- "Add to shortlist" → appears in a shortlist column with drag-reorder.
+- "Fit check" runs `fitCheck` and shows a checklist with suggested edits (button to auto-apply as a section suggestion via existing `journal_suggestions`).
+
+---
+
+### 3. Submission Assistant
+
+A `submission` object per project (one row). Guides the user from "target picked" to "submission-ready package".
+
+**Table**: `submissions` (project_id PK, target_issn nullable, cover_letter text, checklist jsonb, package jsonb, status: `draft|ready|submitted`, submitted_at).
+
+**Features**
+- **Cover letter generator**: `generateCoverLetter({ project_id, issn })` — uses project meta, key findings from `project_visuals`, and journal profile. Editable Markdown, saved to `submissions.cover_letter`.
+- **Compliance checklist**: derived from journal profile — word count vs limits, abstract length, reference style (compare against project.citation_style), section requirements (IMRaD? structured abstract? competing interests? data availability?), figure/table counts. Each item computed deterministically where possible; AI fills gaps ("does the manuscript include an ethics statement?").
+- **Reference style verifier**: `verifyCitations({ project_id, issn })` — checks each `refs` row for completeness for the target style and lists items needing attention.
+- **Author disclosures**: simple form — funding, conflicts of interest, contributions (CRediT taxonomy dropdowns), data availability statement — stored in `submissions.package`.
+- **Submission package export**: extends `export.functions.ts` to emit a zip-equivalent set — manuscript DOCX, title page DOCX, cover letter DOCX/PDF, references list, and a `submission.json` summary. Since worker can't ship a real zip cheaply, offer sequential downloads plus a single "Combined DOCX" (title page + cover + manuscript).
+- **Status tracking**: minimal — record submitted/decision dates against shortlist entries.
+
+---
+
+### 4. Cross-cutting
+
+- **Credit safety**: reuse `pickModel(project.mode)`; keep Flash default; cap AI-touched rows/quotes (200 rows, 40-quote qual samples, top-25 journal rerank). One AI call per user action; deterministic work in JS.
+- **Voice**: reuse `VoiceCapture` + `extractFromNarration` in Data Lab prompt boxes, journal search bar, and cover letter editor.
+- **Citations-aware**: quant/qual narratives and cover letters pull from `refs` (existing `refsBlock` helper pattern from `analysis.functions.ts`).
+- **RLS**: every new table follows the standard `auth.uid() = user_id via project` pattern with GRANTs to `authenticated` + `service_role`.
+- **No new edge functions**; all logic in `createServerFn` under `src/lib/ai/*.functions.ts` and `src/lib/*.functions.ts`. External HTTP (OpenAlex, Crossref, DOAJ, Scopus) called from server functions with basic in-memory + `journal_cache` caching.
+
+---
+
+### Technical section
 
 ```text
-Client → analyzeDataset (serverFn, auth) → parse in worker (bounded)
-                                        → chatJSON({project.mode})
-                                        → save ai_usage row
-                                        → return {summary,findings,charts[],table,citations}
-Client renders → Recharts by chart.type; user picks Insert / Attach
-attachVisual → project_visuals row (RLS by owner)
-exportProject → append Visuals & Analysis section from project_visuals
+Data Lab
+  datasets (new)         ← registerDataset, listDatasets, deleteDataset
+  project_visuals (existing) ← runQuantAnalysis, runQualAnalysis, synthesizeMixed
+  analysis.server.ts     ← + descriptive(), correlation(), ttest(), ols(), freq(), parseTextCorpus()
+  DatasetChart           ← + box, heatmap
+
+Journals
+  journal_cache (new)    ← OpenAlex/Crossref/DOAJ/Scopus fetchers, 30d TTL
+  journal_shortlist (new)
+  searchJournals, getJournalProfile, fitCheck  (all requireSupabaseAuth)
+  Optional SCOPUS_API_KEY via add_secret
+
+Submission
+  submissions (new)
+  generateCoverLetter, verifyCitations, buildChecklist, exportSubmissionPackage
+  export.functions.ts    ← + title page, cover letter, submission.json
 ```
 
-Credit safety: cap rows to 40 in prompt, columns to 20, prompt total ≤ 6k chars; use Flash by default (project.mode = "low_credit"); one AI call per action.
+Migrations (single file per group): `datasets`, `journal_cache`+`journal_shortlist`, `submissions`. Each with GRANTs + RLS + `updated_at` trigger.
 
-### How to test after build
-
-1. Open any project → right panel → **Analysis** tab.
-2. **Text path**: pick "Table", click Generate — same as before.
-3. **Data path**: sub-tab **Data** → paste this CSV and click *Summarize*:
-   ```
-   Group,Pre,Post
-   Control,12,14
-   Treatment,11,19
-   ```
-   Expect: summary text, findings bullets, one HTML table, 1–3 chart previews (bar/line/pie).
-4. Upload a small `.csv` or `.xlsx` (≤200 rows) → click **Analyze** on the file row → same result.
-5. Click **Attach to export** on a chart card → open **Export** → download DOCX/Markdown → verify a "Visuals & Analysis" section appears with the table and chart description.
-6. Dictate: click mic in Data sub-tab, say *"Compare pre and post scores between control and treatment groups, suggest a bar chart"* — prompt fills in, run generates matching visuals.
+### How to test
+1. **Data Lab quant**: upload the sample CSV → open Data Lab → run *Descriptive stats* and *Correlation* → cards render, Attach to export → export DOCX shows both.
+2. **Data Lab qual**: paste a short interview → run *Codes & themes* → theme table renders → Attach → export DOCX shows quotes + themes.
+3. **Journals (no Scopus)**: click *Find journals* → results appear from OpenAlex/Crossref/DOAJ with indexing badges → Add to shortlist → Fit check produces score and edit suggestions.
+4. **Journals (Scopus)**: click *Enable Scopus* → prompted for key → after saving, re-run search → Scopus badge shows on relevant rows.
+5. **Submission**: pick target journal → *Generate cover letter* → edit → checklist shows compliance items → *Download submission package* yields manuscript, cover letter, title page, references.
