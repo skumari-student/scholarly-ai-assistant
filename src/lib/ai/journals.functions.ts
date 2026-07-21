@@ -19,6 +19,7 @@ interface J {
   requirements: string;
   open_access: string;
   notes: string;
+  url: string;
 }
 
 export const generateJournals = createServerFn({ method: "POST" })
@@ -29,7 +30,7 @@ export const generateJournals = createServerFn({ method: "POST" })
     const { data: project, error } = await supabase.from("projects").select("*").eq("id", data.project_id).single();
     if (error || !project) throw new Error("Project not found");
     const model = pickModel(project.mode);
-    const system = `You are ScholarlyWrite AI. Suggest 6 candidate journals, conferences, or edited volumes matching the manuscript. Include a mix of reputable outlets. Return valid JSON: {"journals":[{"name":"","scope":"","audience":"","requirements":"","open_access":"","notes":""}]}. Do not fabricate impact factors. Always add a note that the user must verify current scope, indexing, and requirements on the venue's website.`;
+    const system = `You are ScholarlyWrite AI. Suggest 6 candidate journals, conferences, or edited volumes matching the manuscript. Include a mix of reputable outlets. Return valid JSON: {"journals":[{"name":"","scope":"","audience":"","requirements":"","open_access":"","notes":"","url":""}]}. For "url", give the venue's likely public home page URL (publisher journal page). Do not fabricate impact factors. Always add a note that the user must verify current scope, indexing, and requirements on the venue's website.`;
     const prompt = `Discipline: ${project.discipline || "general"}. Document type: ${project.doc_type}. Topic/abstract: ${data.topic}. Approximate word count: ${data.word_count ?? "unspecified"}. Region preference: ${data.region || "any"}. Open access: ${data.open_access}. Impact level: ${data.impact}.`;
     const result = await chatJSON<{ journals: J[] }>({ model, system, prompt, temperature: 0.6 });
     const rows = (result.journals ?? []).slice(0, 10).map((j) => ({
@@ -40,8 +41,9 @@ export const generateJournals = createServerFn({ method: "POST" })
       requirements: String(j.requirements ?? "").slice(0, 800),
       open_access: String(j.open_access ?? "").slice(0, 100),
       notes: String(j.notes ?? "").slice(0, 500),
+      url: String(j.url ?? "").slice(0, 300) || null,
     }));
-    if (rows.length) await supabase.from("journal_suggestions").insert(rows);
+    if (rows.length) await supabase.from("journal_suggestions").insert(rows as any);
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "journals", model });
     return { count: rows.length };
   });

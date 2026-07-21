@@ -42,10 +42,18 @@ import {
 } from "@/lib/ai/voice.functions";
 import { generateVisual, type GeneratedVisual } from "@/lib/ai/visuals.functions";
 import { addReference, deleteReference, importBibtex } from "@/lib/refs.functions";
+import {
+  listUploads,
+  createUploadUrl,
+  recordUpload,
+  attachUpload,
+  deleteUpload,
+} from "@/lib/uploads.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { formatReferenceList, inTextCitation, type Reference } from "@/lib/citations";
 import { CITATION_STYLES, type CitationStyle } from "@/lib/doc-templates";
 import { countWords } from "@/lib/text";
-import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2 } from "lucide-react";
+import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/projects/$id")({
@@ -428,6 +436,7 @@ function ProjectView({
               <TabsTrigger value="brainstorm">Ideas</TabsTrigger>
               <TabsTrigger value="visuals">Visuals</TabsTrigger>
               <TabsTrigger value="journals">Journals</TabsTrigger>
+              <TabsTrigger value="library">Library</TabsTrigger>
             </TabsList>
 
             <TabsContent value="ai" className="p-4">
@@ -533,6 +542,20 @@ function ProjectView({
 
             <TabsContent value="journals" className="p-4">
               <JournalsPanel projectId={project.id} journals={journals} onRefresh={onRefresh} />
+            </TabsContent>
+
+            <TabsContent value="library" className="p-4">
+              <LibraryPanel
+                projectId={project.id}
+                sections={sections}
+                activeSectionId={active?.id}
+                onInsertMarkdown={(md: string) => {
+                  const next = (content + "\n\n" + md).trim();
+                  setContent(next);
+                  scheduleSave({ content: next });
+                  toast.success("Inserted into section");
+                }}
+              />
             </TabsContent>
           </Tabs>
         </div>
@@ -1269,6 +1292,14 @@ function JournalsPanel({ projectId, journals, onRefresh }: { projectId: string; 
                 {j.requirements && <div className="mt-1"><b>Requirements:</b> {j.requirements}</div>}
                 {j.open_access && <div className="mt-1"><b>OA:</b> {j.open_access}</div>}
                 {j.notes && <div className="mt-1 text-muted-foreground">{j.notes}</div>}
+                <a
+                  href={j.url && /^https?:\/\//.test(j.url) ? j.url : `https://scholar.google.com/scholar?q=${encodeURIComponent(j.name)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" /> Verify on journal's website
+                </a>
               </div>
               <div className="flex flex-col gap-1">
                 <Button size="icon" variant="ghost" onClick={async () => { await pin({ data: { id: j.id, pinned: !j.pinned } }); onRefresh(); }}>
@@ -1282,6 +1313,223 @@ function JournalsPanel({ projectId, journals, onRefresh }: { projectId: string; 
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+interface UploadRow {
+  id: string;
+  project_id: string;
+  section_id: string | null;
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+  kind: "image" | "file";
+  signed_url: string | null;
+}
+
+function LibraryPanel({
+  projectId,
+  sections,
+  activeSectionId,
+  onInsertMarkdown,
+}: {
+  projectId: string;
+  sections: Section[];
+  activeSectionId?: string;
+  onInsertMarkdown: (md: string) => void;
+}) {
+  const list = useServerFn(listUploads);
+  const sign = useServerFn(createUploadUrl);
+  const record = useServerFn(recordUpload);
+  const attach = useServerFn(attachUpload);
+  const del = useServerFn(deleteUpload);
+  const [items, setItems] = useState<UploadRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const rows = (await list({ data: { project_id: projectId } })) as UploadRow[];
+      setItems(rows);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load library");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || !files.length) return;
+    setUploading(true);
+    const t = toast.loading(`Uploading ${files.length} file${files.length === 1 ? "" : "s"}…`);
+    try {
+      for (const file of Array.from(files)) {
+        const { path, token } = await sign({
+          data: { project_id: projectId, name: file.name },
+        });
+        const { error } = await supabase.storage
+          .from("project-uploads")
+          .uploadToSignedUrl(path, token, file, { contentType: file.type });
+        if (error) throw new Error(error.message);
+        await record({
+          data: {
+            project_id: projectId,
+            path,
+            name: file.name,
+            mime: file.type || "application/octet-stream",
+            size: file.size,
+            section_id: activeSectionId ?? null,
+          },
+        });
+      }
+      toast.success("Uploaded", { id: t });
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed", { id: t });
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    await handleFiles(e.dataTransfer.files);
+  }
+
+  return (
+    <div>
+      <div
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
+        className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/30 p-4 text-center text-xs text-muted-foreground"
+      >
+        <Upload className="h-5 w-5" />
+        <div>Drag & drop files here, or</div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => inputRef.current?.click()} disabled={uploading}>
+            {uploading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Upload className="mr-2 h-3 w-3" />}
+            Upload files
+          </Button>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        <div className="text-[10px]">Images, PDFs, notes — max ~20MB each.</div>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 text-xs text-muted-foreground">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="mt-4 text-xs text-muted-foreground">No uploads yet.</div>
+      ) : (
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          {items.map((u) => (
+            <div key={u.id} className="rounded-md border border-border bg-background p-2 text-xs">
+              {u.kind === "image" && u.signed_url ? (
+                <a href={u.signed_url} target="_blank" rel="noopener noreferrer">
+                  <img
+                    src={u.signed_url}
+                    alt={u.name}
+                    className="mb-2 h-24 w-full rounded object-cover"
+                  />
+                </a>
+              ) : (
+                <div className="mb-2 flex h-24 items-center justify-center rounded bg-muted">
+                  <Paperclip className="h-6 w-6 text-muted-foreground" />
+                </div>
+              )}
+              <div className="truncate font-medium" title={u.name}>{u.name}</div>
+              <div className="text-[10px] text-muted-foreground">
+                {u.mime} · {fmtSize(u.size)}
+              </div>
+              <div className="mt-1 text-[10px]">
+                <b>Section:</b>{" "}
+                <select
+                  className="rounded border border-input bg-background px-1 py-0.5 text-[10px]"
+                  value={u.section_id ?? ""}
+                  onChange={async (e) => {
+                    const next = e.target.value || null;
+                    await attach({ data: { id: u.id, section_id: next } });
+                    await refresh();
+                  }}
+                >
+                  <option value="">— none —</option>
+                  {sections.map((s) => (
+                    <option key={s.id} value={s.id}>{s.title}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => {
+                    if (!u.signed_url) {
+                      toast.error("No link available");
+                      return;
+                    }
+                    const md =
+                      u.kind === "image"
+                        ? `![${u.name}](${u.signed_url})`
+                        : `[${u.name}](${u.signed_url})`;
+                    onInsertMarkdown(md);
+                  }}
+                >
+                  <Link2 className="mr-1 h-3 w-3" /> Insert
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={async () => {
+                    if (!u.signed_url) return;
+                    await navigator.clipboard.writeText(u.signed_url);
+                    toast.success("Link copied");
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={async () => {
+                    if (!confirm(`Delete "${u.name}"?`)) return;
+                    await del({ data: { id: u.id } });
+                    await refresh();
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-[10px] text-muted-foreground">
+        Uploads are private to you. Insert links to reference an image or file inside a section.
+      </p>
     </div>
   );
 }
