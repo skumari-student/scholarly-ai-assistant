@@ -543,6 +543,20 @@ function ProjectView({
             <TabsContent value="journals" className="p-4">
               <JournalsPanel projectId={project.id} journals={journals} onRefresh={onRefresh} />
             </TabsContent>
+
+            <TabsContent value="library" className="p-4">
+              <LibraryPanel
+                projectId={project.id}
+                sections={sections}
+                activeSectionId={active?.id}
+                onInsertMarkdown={(md) => {
+                  const next = (content + "\n\n" + md).trim();
+                  setContent(next);
+                  scheduleSave({ content: next });
+                  toast.success("Inserted into section");
+                }}
+              />
+            </TabsContent>
           </Tabs>
         </div>
       </div>
