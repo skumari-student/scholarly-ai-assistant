@@ -26,9 +26,16 @@ export function VoiceCapture({
 
   async function start() {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        toast.error("Microphone recording is not available in this browser");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const ctx = new AudioContext();
+      const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) throw new Error("Audio recording is not supported in this browser");
+      const ctx = new AudioContextCtor();
+      if (ctx.state === "suspended") await ctx.resume();
       ctxRef.current = ctx;
       const src = ctx.createMediaStreamSource(stream);
       srcRef.current = src;
@@ -49,7 +56,8 @@ export function VoiceCapture({
   async function stop() {
     setState("processing");
     try {
-      const ctx = ctxRef.current!;
+      const ctx = ctxRef.current;
+      if (!ctx) throw new Error("Recording was not started");
       nodeRef.current?.disconnect();
       srcRef.current?.disconnect();
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -58,7 +66,7 @@ export function VoiceCapture({
       await ctx.close();
       const wav = encodeWav(chunks, sampleRate, 16000);
       if (wav.size < 2048) {
-        toast.error("Recording was too short");
+        toast.error("No speech was captured — please try again");
         setState("idle");
         return;
       }
@@ -66,7 +74,8 @@ export function VoiceCapture({
       form.append("file", wav, "recording.wav");
       const res = await fetch("/api/stt", { method: "POST", body: form });
       if (!res.ok || !res.body) {
-        toast.error("Transcription failed");
+        const message = await res.text().catch(() => "Transcription failed");
+        toast.error(message || "Transcription failed");
         setState("idle");
         return;
       }
@@ -74,31 +83,43 @@ export function VoiceCapture({
       const decoder = new TextDecoder();
       let buffer = "";
       let full = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
+      const processEvents = (raw: string) => {
+        const events = raw.split("\n\n");
         for (const ev of events) {
-          const line = ev.split("\n").find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const payload = line.slice(5).trim();
+          const lines = ev.split("\n").filter((l) => l.startsWith("data:"));
+          if (!lines.length) continue;
+          const payload = lines.map((line) => line.slice(5).trim()).join("\n");
           if (!payload || payload === "[DONE]") continue;
           try {
             const obj = JSON.parse(payload);
             if (obj.type === "transcript.text.done" && obj.text) full = obj.text;
             else if (obj.type === "transcript.text.delta" && obj.delta && !full) full += obj.delta;
           } catch {
-            /* ignore */
+            /* ignore malformed partial event */
           }
         }
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        processEvents(events.join("\n\n"));
       }
-      if (full) onTranscript(full);
-      else toast.error("No transcript returned");
+      buffer += decoder.decode();
+      if (buffer.trim()) processEvents(buffer);
+      const transcript = full.trim();
+      if (transcript) onTranscript(transcript);
+      else toast.error("No transcript returned — try speaking a little longer");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Recording failed");
     } finally {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      nodeRef.current = null;
+      srcRef.current = null;
+      ctxRef.current = null;
       setState("idle");
     }
   }
