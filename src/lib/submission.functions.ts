@@ -75,7 +75,7 @@ export const generateCoverLetter = createServerFn({ method: "POST" })
     const text = await chat({
       model,
       system: "You draft formal academic cover letters to journal editors. Return only the letter body in Markdown, no preamble. Keep it under 350 words.",
-      prompt: `Draft a cover letter to the editor of ${journalLine} for the manuscript below.\n\nTitle: ${project.title}\nDoc type: ${project.doc_type}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.abstract ?? "").slice(0, 1600)}\n\nKey findings:\n${findings.map((f: string) => `- ${f}`).join("\n") || "(derive from abstract)"}\n\nAdditional instructions: ${data.extra ?? ""}`,
+      prompt: `Draft a cover letter to the editor of ${journalLine} for the manuscript below.\n\nTitle: ${project.title}\nDoc type: ${project.doc_type}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.context_notes ?? "").slice(0, 1600)}\n\nKey findings:\n${findings.map((f: string) => `- ${f}`).join("\n") || "(derive from abstract)"}\n\nAdditional instructions: ${data.extra ?? ""}`,
       temperature: 0.4, maxOutputTokens: 900,
     });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "submission:cover", model });
@@ -96,11 +96,11 @@ export const buildChecklist = createServerFn({ method: "POST" })
     ]);
     if (!project) throw new Error("Project not found");
     const totalWords = (sections ?? []).reduce((s, x: any) => s + countWords(x.content ?? ""), 0);
-    const abstractWords = countWords(project.abstract ?? "");
+    const abstractWords = countWords(project.context_notes ?? "");
     const sectionTitles = (sections ?? []).map((s: any) => s.title.toLowerCase());
     const has = (kw: string) => sectionTitles.some((t: string) => t.includes(kw));
     const items: ChecklistItem[] = [
-      { id: "abstract", label: "Abstract present", ok: !!(project.abstract ?? "").trim(), note: `${abstractWords} words` },
+      { id: "abstract", label: "Abstract present", ok: !!(project.context_notes ?? "").trim(), note: `${abstractWords} words` },
       { id: "abstract_len", label: "Abstract ≤ 300 words", ok: abstractWords > 0 && abstractWords <= 300, note: `${abstractWords} words` },
       { id: "wordcount", label: "Manuscript ≥ 1500 words", ok: totalWords >= 1500, note: `${totalWords} words total` },
       { id: "intro", label: "Introduction section", ok: has("intro") },

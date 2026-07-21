@@ -129,7 +129,7 @@ export const searchJournals = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     const { data: project } = await supabase
-      .from("projects").select("title,abstract,discipline,mode").eq("id", data.project_id).single();
+      .from("projects").select("title,context_notes,discipline,mode").eq("id", data.project_id).single();
     if (!project) throw new Error("Project not found");
     const query = (data.query || `${project.title} ${project.discipline ?? ""}`.trim()).slice(0, 300);
 
@@ -172,7 +172,7 @@ export const searchJournals = createServerFn({ method: "POST" })
       const raw = await chatJSON<any>({
         model,
         system: "You rate how well each journal matches a research abstract. Return strict JSON {ranked:[{i,score,why}]} with score 0-100.",
-        prompt: `Project title: ${project.title}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.abstract ?? "").slice(0, 1500)}\n\nCandidates:\n${top.map((t) => `#${t.i}: ${t.title} (${t.publisher ?? "?"}, impact ${t.impact ?? "n/a"})`).join("\n")}`,
+        prompt: `Project title: ${project.title}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.context_notes ?? "").slice(0, 1500)}\n\nCandidates:\n${top.map((t) => `#${t.i}: ${t.title} (${t.publisher ?? "?"}, impact ${t.impact ?? "n/a"})`).join("\n")}`,
         temperature: 0.1, maxOutputTokens: 1400,
       });
       ranking = Array.isArray(raw?.ranked) ? raw.ranked.slice(0, 25) : [];
@@ -213,7 +213,7 @@ export const fitCheck = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => fitSchema.parse(d))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    const { data: project } = await supabase.from("projects").select("title,abstract,discipline,mode").eq("id", data.project_id).single();
+    const { data: project } = await supabase.from("projects").select("title,context_notes,discipline,mode").eq("id", data.project_id).single();
     if (!project) throw new Error("Project not found");
     const profile = await getJournalProfile({ data: { issn: data.issn } } as any);
     const recentTitles = (profile.recent_articles ?? []).map((a) => `- ${a.title}`).join("\n");
@@ -221,7 +221,7 @@ export const fitCheck = createServerFn({ method: "POST" })
     const raw = await chatJSON<any>({
       model,
       system: "You assess journal fit for a manuscript. Return strict JSON {score, reasons[], risks[], suggestedEdits[]}. Score 0-100.",
-      prompt: `Journal: ${profile.title} (${profile.publisher ?? ""})\nIndexing: Scopus=${profile.scopus} DOAJ=${profile.doaj} OA=${profile.openaccess}\nRecent article titles:\n${recentTitles}\n\nManuscript title: ${project.title}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.abstract ?? "").slice(0, 1800)}`,
+      prompt: `Journal: ${profile.title} (${profile.publisher ?? ""})\nIndexing: Scopus=${profile.scopus} DOAJ=${profile.doaj} OA=${profile.openaccess}\nRecent article titles:\n${recentTitles}\n\nManuscript title: ${project.title}\nDiscipline: ${project.discipline ?? ""}\nAbstract: ${(project.context_notes ?? "").slice(0, 1800)}`,
       temperature: 0.2, maxOutputTokens: 900,
     });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "journals:fit", model });
