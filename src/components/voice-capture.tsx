@@ -1,17 +1,21 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { Mic, Square, Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 // Records mic audio via Web Audio and encodes a 16kHz mono WAV, then streams it to /api/stt.
+// - When `onCommand` is provided, the transcript is passed to `onCommand` (command mode).
+// - Otherwise the transcript is passed to `onTranscript` (dictation).
 export function VoiceCapture({
   onTranscript,
+  onCommand,
   label,
   size = "sm",
   variant = "outline",
   compact = false,
 }: {
-  onTranscript: (text: string) => void;
+  onTranscript?: (text: string) => void;
+  onCommand?: (text: string) => void | Promise<void>;
   label?: string;
   size?: "sm" | "icon" | "default";
   variant?: "outline" | "ghost" | "secondary" | "default";
@@ -112,8 +116,10 @@ export function VoiceCapture({
       buffer += decoder.decode();
       if (buffer.trim()) processEvents(buffer);
       const transcript = (full || deltas).trim();
-      if (transcript) onTranscript(transcript);
-      else toast.error("No transcript returned — try speaking a little longer");
+      if (transcript) {
+        if (onCommand) await onCommand(transcript);
+        else onTranscript?.(transcript);
+      } else toast.error("No transcript returned — try speaking a little longer");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Recording failed");
     } finally {
@@ -127,6 +133,9 @@ export function VoiceCapture({
   }
 
   const iconOnly = compact || size === "icon";
+  const isCommand = !!onCommand;
+  const defaultLabel = isCommand ? "Voice command" : "Dictate";
+  const Icon = isCommand ? Wand2 : Mic;
   return (
     <Button
       type="button"
@@ -134,7 +143,7 @@ export function VoiceCapture({
       size={iconOnly ? "icon" : size}
       onClick={state === "recording" ? stop : start}
       disabled={state === "processing"}
-      title={state === "recording" ? "Stop recording" : "Dictate"}
+      title={state === "recording" ? "Stop recording" : defaultLabel}
     >
       {state === "recording" ? (
         <>
@@ -148,8 +157,8 @@ export function VoiceCapture({
         </>
       ) : (
         <>
-          <Mic className={`h-4 w-4 ${iconOnly ? "" : "mr-2"}`} />
-          {!iconOnly && (label ?? "Dictate")}
+          <Icon className={`h-4 w-4 ${iconOnly ? "" : "mr-2"}`} />
+          {!iconOnly && (label ?? defaultLabel)}
         </>
       )}
     </Button>

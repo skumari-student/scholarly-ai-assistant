@@ -90,20 +90,63 @@ export async function chat(opts: ChatOptions): Promise<string> {
 }
 
 export async function chatJSON<T = unknown>(opts: ChatOptions): Promise<T> {
-  const jsonInstruction = "Return only valid JSON. Do not wrap it in Markdown.";
+  const jsonInstruction = "Return ONLY a single valid JSON value (object or array). No prose, no reasoning, no Markdown fences, no ```json wrappers. Begin your response with { or [ and end with } or ].";
   const text = await chat({
     ...opts,
     system: opts.system ? `${opts.system}\n\n${jsonInstruction}` : jsonInstruction,
     prompt: opts.prompt ? `${opts.prompt}\n\n${jsonInstruction}` : opts.prompt,
   });
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // try to extract first JSON block
-    const m = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (m) return JSON.parse(m[0]) as T;
-    throw new Error("AI response was not valid JSON");
+  const parsed = parseLooseJson<T>(text);
+  if (parsed !== undefined) return parsed;
+  throw new Error("AI response was not valid JSON");
+}
+
+// Robust JSON parser that tolerates markdown fences, Gemini "reasoning"
+// prefixes, trailing prose, and single-quoted keys/values.
+export function parseLooseJson<T = unknown>(raw: string): T | undefined {
+  if (!raw) return undefined;
+  let text = String(raw);
+  // Strip common reasoning/thinking prefixes.
+  text = text.replace(/^\s*(?:thinking|reasoning|analysis|thought)[:\s\-][\s\S]*?(?=[\[{])/i, "");
+  // Strip ```json ... ``` or ``` ... ``` fences (keep inner content).
+  const fence = text.match(/```(?:json|JSON)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1];
+  const attempts = [text, extractBalanced(text, "{", "}"), extractBalanced(text, "[", "]")];
+  for (const candidate of attempts) {
+    if (!candidate) continue;
+    try { return JSON.parse(candidate) as T; } catch { /* fall through */ }
+    // Best-effort: convert smart quotes and trim trailing commas.
+    const cleaned = candidate
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1");
+    try { return JSON.parse(cleaned) as T; } catch { /* try next */ }
   }
+  return undefined;
+}
+
+function extractBalanced(text: string, open: string, close: string): string | null {
+  const start = text.indexOf(open);
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === open) depth++;
+    else if (ch === close) {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 export function pickModel(mode: string | undefined): string {
