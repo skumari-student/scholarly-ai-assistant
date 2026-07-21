@@ -1111,6 +1111,22 @@ function BrainstormPanel({ projectId, onRefresh }: { projectId: string; onRefres
       <div className="mt-2 flex flex-wrap gap-2">
         <VoiceCapture onTranscript={(t) => setArea((a) => (a + " " + t).trim())} />
         <VoiceCapture label="Dictate keywords" onTranscript={(t) => setKeywords((k) => (k + " " + t).trim())} />
+        <VoiceCapture
+          label="Voice: brainstorm now"
+          onCommand={async (t) => {
+            setArea(t);
+            setRunning(true);
+            setResult(null);
+            setSelected(new Set());
+            try {
+              const r = await brain({ data: { project_id: projectId, area: t, keywords } });
+              setResult(r);
+              toast.success("Brainstorm ready");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Failed");
+            } finally { setRunning(false); }
+          }}
+        />
         <Button size="sm" onClick={run} disabled={running}>
           {running ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Sparkles className="mr-2 h-3 w-3" />} Brainstorm
         </Button>
