@@ -42,10 +42,18 @@ import {
 } from "@/lib/ai/voice.functions";
 import { generateVisual, type GeneratedVisual } from "@/lib/ai/visuals.functions";
 import { addReference, deleteReference, importBibtex } from "@/lib/refs.functions";
+import {
+  listUploads,
+  createUploadUrl,
+  recordUpload,
+  attachUpload,
+  deleteUpload,
+} from "@/lib/uploads.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { formatReferenceList, inTextCitation, type Reference } from "@/lib/citations";
 import { CITATION_STYLES, type CitationStyle } from "@/lib/doc-templates";
 import { countWords } from "@/lib/text";
-import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2 } from "lucide-react";
+import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/projects/$id")({
