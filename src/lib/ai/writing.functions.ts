@@ -42,7 +42,6 @@ function referenceLibraryBlock(refs: Reference[], style: CitationStyle): string 
   return refs
     .slice(0, 50)
     .map((r, index) => {
-      const ieeeRef = { ...r, cite_key: String(index + 1) };
       return `- ${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`;
     })
     .join("\n");
