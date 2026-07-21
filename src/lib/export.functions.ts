@@ -171,6 +171,7 @@ export const exportProject = createServerFn({ method: "POST" })
 <h1>${escape(project.title)}</h1>
 <div class="meta">${escape(project.doc_type || "")} · ${escape(style)} · ${data.draft ? "Draft" : "Final"} version</div>
 ${sections.map((s) => `<h2>${escape(s.title)}</h2>\n${paragraphs(s.content) || "<p><em>(empty)</em></p>"}`).join("\n")}
+${visualsHtml}
 ${refBlock}
 ${draftFooter}
 </body></html>`;
