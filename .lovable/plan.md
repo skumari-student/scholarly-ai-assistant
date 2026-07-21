@@ -1,52 +1,84 @@
-# Auth reliability fix
+# Phase 1.1 — Writing workspace upgrades
 
-## Diagnosis (what's actually wrong)
+Scoped to the editor. No touching exports, Data Lab, submission assistant, auth, or unrelated AI functions. Reuses existing tables and the existing `runVoiceCommand` / `runWritingAction` server fns wherever possible.
 
-1. **Signup silently doesn't sign you in.** Email confirmation is on by default in Lovable Cloud. `/auth` calls `signUp` then toasts "You're signed in." Supabase returns `{ user, session: null }` because the email needs confirming — the user sees success, no session lands, next tab/refresh looks "logged out." This is the biggest reason "sign-up fails / session not recognised."
-2. **No cross-tab / post-login router sync.** There is no root `onAuthStateChange` subscriber. Supabase syncs the session across tabs via `localStorage`, but the TanStack router never invalidates, so the second tab keeps showing the signed-out shell and the `_authenticated` gate (which only re-runs on navigation) doesn't re-evaluate.
-3. **Auth page initial check uses `getUser()`** (network round-trip that can fail transiently in the preview iframe) instead of the local `getSession()`, so the redirect on load is flaky.
-4. **Google OAuth `redirect_uri` is `window.location.origin`** — lands the user on `/` (the public landing), and only the `/auth` page's listener navigates to `/dashboard`. If the popup closes while the user is already on `/`, nothing routes them forward.
-5. Site URL / redirect URLs: Lovable Cloud manages these automatically for `*.lovable.app` and the published domain. No manual config needed and none available via tooling — noting this so we don't chase a non-issue.
+## 1. Word count + project status
 
-## Changes
+- **DB**: one small additive migration — `alter table public.projects add column status text not null default 'draft' check (status in ('draft','completed'));`. No RLS/grant changes (existing policies already cover the row).
+- **Server fn** (`src/lib/projects.functions.ts`): add `updateProjectStatus({ id, status })`. `getProject` already returns `project.*` so status flows through.
+- **Header (`projects.$id.tsx`)**:
+  - Section word count chip next to the active section title (computed from `content` state; live).
+  - Project total chip in the header, next to "AI calls" / mode selector (sum across `sections[].content`, updated optimistically as the active section edits).
+  - `Draft ↔ Completed` toggle (shadcn `Switch` with label) that calls `updateProjectStatus` and refreshes.
+- Word counter: shared `countWords(text)` helper in `src/lib/text.ts` (`text.trim().match(/\S+/g)?.length ?? 0`).
 
-### Backend config
-- Call `supabase--configure_auth` with `auto_confirm_email: true` (keeps signup → immediate session, matches the MVP UX and avoids email-deliverability flakiness in previews). Signup, Google, and email are all already enabled.
+## 2. Voice everywhere
 
-### `src/routes/__root.tsx` — root auth listener
-- Inside `RootComponent`, add a single `useEffect` that subscribes to `supabase.auth.onAuthStateChange`, filters to `SIGNED_IN | SIGNED_OUT | USER_UPDATED`, and calls `router.invalidate()` (plus `queryClient.invalidateQueries()` when not `SIGNED_OUT`). This is the canonical cross-tab + post-login sync and makes the `_authenticated` gate re-run automatically.
+Reuse existing `<VoiceCapture />` (mic → STT → text). Extend to two modes:
 
-### `src/routes/auth.tsx` — tighten the page
-- Use `supabase.auth.getSession()` (local, sync-ish) for the initial "already signed in?" check instead of `getUser()`.
-- Keep the `onAuthStateChange` listener but let the root subscriber own router invalidation; here we just `navigate({ to: "/dashboard", replace: true })` on `SIGNED_IN`.
-- Signup handler: if `data.session` is null after `signUp` (confirmation still required for any reason), show an explicit "Check your email to confirm" message instead of a false success toast.
-- Google button: set `redirect_uri` to `${window.location.origin}/auth` so the popup/redirect returns to a page whose listener routes to `/dashboard` deterministically. Still a public same-origin URL (compliant with the OAuth guidance).
+- **Dictation** (default): raw transcript is appended to the target field.
+- **Command**: transcript is sent to `runVoiceCommand` with a new `intent` hint; the returned JSON auto-fills fields.
 
-### `src/routes/_authenticated/route.tsx` — cheaper, more reliable gate
-- Replace `supabase.auth.getUser()` (network) with `supabase.auth.getSession()` (local) for the redirect decision. `ssr: false` is already set. With the root listener calling `router.invalidate()`, the gate re-runs on real auth changes.
+Changes:
+- `src/components/voice-capture.tsx`: add optional `mode: "dictation" | "command"` prop and a tiny inline toggle; `onTranscript` still fires for dictation, `onCommand(transcript)` fires for command mode.
+- Mic buttons added:
+  - Editor draft (already there) — keep, and add a second mic on the **Outline** field.
+  - **Topics panel**: mic next to the "brief" input; dictation fills the brief.
+  - **Journals panel**: mic next to the scope/keywords input; dictation fills it.
+  - **Brainstorming panel** (new, see §3): mic for the area/keywords.
+- **Extract-to-fields command** (`src/lib/ai/voice.functions.ts`): add `extractFromNarration({ project_id, transcript })` — one lean AI call returning strict JSON `{ topic, objectives, research_questions[], methodology, keywords[], notes }`. The client shows a small "Apply" panel letting the user push these into: project `context_notes`, section outline, or (if on Topics tab) a new pinned topic. Cheap prompt: title + doc_type + discipline + transcript only, not the whole document.
 
-### `src/routes/index.tsx` — session-aware CTA (small polish)
-- If a session exists, the "Sign in" / "Start writing" CTAs link to `/dashboard`. Prevents the "I'm signed in but the landing still says Sign in" confusion. Read via a tiny `useEffect` + local state; no new context/library.
+## 3. Brainstorming + topic extraction
 
-## Explicitly NOT changing
-- No new auth-context library, no Zustand/Jotai. Supabase client + the root listener + router context is enough.
-- No changes to AI functions, DB schema, RLS, editor, exports, or projects code.
-- No new routes, no `/auth/callback` page (Lovable's OAuth broker handles the round-trip; returning to `/auth` is sufficient).
-- Not touching `client.ts`, `auth-middleware.ts`, `auth-attacher.ts`, `start.ts` — already correct.
+- **New right-panel tab** `Brainstorm` (added as 6th tab, keeps existing five).
+  - Inputs: broad area, optional keywords (typed or dictated).
+  - New server fn `brainstormIdeas` in `src/lib/ai/topics.functions.ts` — one lean AI call, JSON `{ ideas[], problems[], questions[] }`. No new tables; results live in component state with a "Save selected as topics" button that reuses the existing `topics` insert path (small helper `insertTopics`).
+- **Topic extraction** in the Topics panel:
+  - New button "Extract from current section" — calls new `extractTopicFromText({ project_id, text })` server fn (lean prompt, uses only the active section content, capped to ~4k chars). Returns `{ implicit_topic, better_statements[], subtopics[] }`.
+  - Same panel accepts a voice narration (mic reuses command mode → same server fn with the transcript).
+  - Results render inline with "Pin as topic" buttons that reuse existing `togglePinTopic` flow (inserts via same table).
 
-## Trade-offs
-- Enabling `auto_confirm_email` removes the email verification step. For an MVP this is the standard Lovable Cloud recommendation; can be re-enabled later once transactional email is configured. Called out per user's ask.
+## 4. Citation style UX + save indicator
 
-## Test plan (after build)
-1. Sign up with email+password → land on `/dashboard` immediately.
-2. Sign out, sign back in → `/dashboard`.
-3. Open the same preview URL in a second tab → dashboard renders without re-auth.
-4. Hard refresh on `/dashboard` and on a project page → stays signed in.
-5. Google sign-in from `/auth` → dashboard.
+- **Header citation selector**: replace the read-only header text with a `<Select>` (APA / MLA / Chicago / IEEE) that calls a new `updateProjectCitationStyle({ id, citation_style })` server fn and invalidates the query. Because `ReferencesPanel` and the AI writing prompts already read `project.citation_style`, in-text citations, the reference list, and future AI outputs re-render/regenerate against the new style with no extra work.
+- **Save indicator**: 
+  - `projects.$id.tsx` tracks `saveState: "idle" | "dirty" | "saving" | "saved"`. `scheduleSave` sets `dirty`, the debounced call sets `saving` → `saved` (auto-fades to `idle` after 2 s).
+  - Small status pill in the header (`Saved`, `Saving…`, `Unsaved changes`).
+  - "Save now" button flushes the debounce timer and awaits the update immediately.
+
+## 5. Intensive citations in Literature Review
+
+- **UI**: when the active section's `key === "lit_review"` (or `key === "literature_review"` per `doc-templates`), show two extras above the AI actions:
+  - Toggle: `Intensive citations` (persisted in component state; passed on next AI call).
+  - Small note: "Uses your reference library ({n} refs) in {style} style."
+- **Prompt** (`src/lib/ai/writing.functions.ts`):
+  - Extend `runWritingAction` input with `intensive?: boolean` (default false). When true AND the section is the lit-review AND there are refs, fetch the project's refs, build a compact context block (cite_key, authors, year, title, container — no abstracts) and add a system instruction: "Weave multiple sources per paragraph using {citation_style} in-text form via the supplied cite keys; every claim needs at least one citation; produce synthesis, not per-source summaries; do not invent references beyond the provided list."
+  - Client sends `intensive` from the toggle. Non-lit-review sections ignore it.
+- Keeps low-credit vs advanced routing untouched (still `pickModel(project.mode)`).
 
 ## Files touched
-- `src/routes/__root.tsx`
-- `src/routes/auth.tsx`
-- `src/routes/_authenticated/route.tsx`
-- `src/routes/index.tsx`
-- Cloud auth setting via `supabase--configure_auth`
+
+- `src/routes/_authenticated/projects.$id.tsx` (header chips/toggle/select/save pill, mic additions, Brainstorm tab wiring, Lit-review toggle, topic extraction UI)
+- `src/components/voice-capture.tsx` (dictation/command modes)
+- `src/lib/projects.functions.ts` (`updateProjectStatus`, `updateProjectCitationStyle`)
+- `src/lib/ai/voice.functions.ts` (`extractFromNarration`)
+- `src/lib/ai/topics.functions.ts` (`brainstormIdeas`, `extractTopicFromText`, small `insertTopics` helper)
+- `src/lib/ai/writing.functions.ts` (`intensive` flag + refs-aware lit-review prompt)
+- `src/lib/text.ts` (new; `countWords`)
+- One SQL migration (adds `projects.status`)
+
+## Not touched
+
+Auth, exports, Data Lab, submission assistant, other AI functions, all other tables, RLS.
+
+## Test plan
+
+1. Word counts update as you type; project total sums across sections.
+2. Toggle status Draft ↔ Completed persists after refresh.
+3. Mic on outline / topics brief / journals scope / brainstorm fills those fields via dictation.
+4. Long narration in "command" mode extracts topic/objectives/RQs/methodology and previews an Apply panel.
+5. Brainstorm tab returns ideas/problems/questions; selected items save as topics.
+6. "Extract from current section" surfaces implicit topic + better statements + subtopics.
+7. Changing citation style in header updates in-text and reference list live.
+8. Saved / Saving… / Unsaved pill reflects state; "Save now" flushes immediately.
+9. In Literature Review, enabling Intensive citations produces multi-source synthesis paragraphs using in-text citations in the current style, drawn from the project's reference library.

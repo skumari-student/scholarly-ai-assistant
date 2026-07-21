@@ -20,6 +20,7 @@ const schema = z.object({
   section_id: z.string().uuid(),
   action: z.enum(ACTIONS),
   extra: z.string().max(2000).optional().default(""),
+  intensive: z.boolean().optional().default(false),
 });
 
 async function logUsage(
@@ -32,6 +33,7 @@ async function logUsage(
   await supabase.from("ai_usage").insert({ project_id, user_id, kind, model });
 }
 
+const LIT_REVIEW_KEYS = new Set(["literature", "lit_review", "literature_review", "themes"]);
 
 export const runWritingAction = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -47,13 +49,37 @@ export const runWritingAction = createServerFn({ method: "POST" })
     const project = (section as any).projects;
     const model = pickModel(project.mode);
 
-    const system = `You are ScholarlyWrite AI, an academic writing assistant. Style: ${project.language_level} academic English. Discipline: ${project.discipline || "general"}. Document: ${project.doc_type}. Section: ${section.title}. Be concise, structured, and ethical. Do not fabricate citations or data; refer to sources generically when no reference is supplied. Output plain prose unless asked for a list.`;
+    const isLitReview = LIT_REVIEW_KEYS.has(section.key);
+    let refsBlock = "";
+    let intensiveDirective = "";
+
+    if (data.intensive && isLitReview) {
+      const { data: refs } = await supabase
+        .from("refs")
+        .select("cite_key,authors,year,title,container")
+        .eq("project_id", project.id)
+        .order("created_at");
+      if (refs && refs.length) {
+        const compact = refs
+          .slice(0, 40)
+          .map(
+            (r: any) =>
+              `- [${r.cite_key}] ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}`,
+          )
+          .join("\n");
+        refsBlock = `\n\nReference library (use these cite keys only; do not invent references):\n${compact}`;
+        intensiveDirective = ` Use INTENSIVE citation: weave 2-4 references from the reference library into every paragraph as synthesis (compare/contrast/build), not one-source summaries. Every claim needs an in-text citation in ${project.citation_style} style, derived from the listed cite keys (e.g. author-year for APA/Chicago, [n]-style for IEEE using the cite_key). Never fabricate a citation outside the library.`;
+      }
+    }
+
+    const system = `You are ScholarlyWrite AI, an academic writing assistant. Style: ${project.language_level} academic English. Discipline: ${project.discipline || "general"}. Document: ${project.doc_type}. Section: ${section.title}. Citation style: ${project.citation_style}. Be concise, structured, and ethical. Do not fabricate citations or data; refer to sources generically when no reference is supplied. Output plain prose unless asked for a list.${intensiveDirective}`;
 
     const ctx = [
       project.context_notes ? `Project notes:\n${project.context_notes}` : "",
       section.outline ? `Current outline:\n${section.outline}` : "",
       section.content ? `Current draft:\n${section.content.slice(0, 6000)}` : "",
       data.extra ? `User instruction:\n${data.extra}` : "",
+      refsBlock,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -72,6 +98,6 @@ export const runWritingAction = createServerFn({ method: "POST" })
     };
 
     const output = await chat({ model, system, prompt: prompts[data.action], temperature: 0.5 });
-    await logUsage(supabase, project.id, userId, `writing:${data.action}`, model);
+    await logUsage(supabase, project.id, userId, `writing:${data.action}${data.intensive ? ":intensive" : ""}`, model);
     return { output };
   });

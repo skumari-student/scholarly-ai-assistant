@@ -119,6 +119,31 @@ export const updateProjectMode = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const updateProjectStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), status: z.enum(["draft", "completed"]) }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("projects").update({ status: data.status }).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const updateProjectCitationStyle = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), citation_style: z.enum(["APA", "MLA", "Chicago", "IEEE"]) }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("projects")
+      .update({ citation_style: data.citation_style })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export const deleteProject = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))

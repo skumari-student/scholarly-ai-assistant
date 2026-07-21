@@ -4,7 +4,19 @@ import { Mic, Square, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 // Records mic audio via Web Audio and encodes a 16kHz mono WAV, then streams it to /api/stt.
-export function VoiceCapture({ onTranscript }: { onTranscript: (text: string) => void }) {
+export function VoiceCapture({
+  onTranscript,
+  label,
+  size = "sm",
+  variant = "outline",
+  compact = false,
+}: {
+  onTranscript: (text: string) => void;
+  label?: string;
+  size?: "sm" | "icon" | "default";
+  variant?: "outline" | "ghost" | "secondary" | "default";
+  compact?: boolean;
+}) {
   const [state, setState] = useState<"idle" | "recording" | "processing">("idle");
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -29,7 +41,7 @@ export function VoiceCapture({ onTranscript }: { onTranscript: (text: string) =>
       src.connect(node);
       node.connect(ctx.destination);
       setState("recording");
-    } catch (e) {
+    } catch {
       toast.error("Microphone access denied");
     }
   }
@@ -58,7 +70,6 @@ export function VoiceCapture({ onTranscript }: { onTranscript: (text: string) =>
         setState("idle");
         return;
       }
-      // SSE stream: collect deltas + final text
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -92,19 +103,30 @@ export function VoiceCapture({ onTranscript }: { onTranscript: (text: string) =>
     }
   }
 
+  const iconOnly = compact || size === "icon";
   return (
-    <Button type="button" variant="outline" size="sm" onClick={state === "recording" ? stop : start} disabled={state === "processing"}>
+    <Button
+      type="button"
+      variant={variant}
+      size={iconOnly ? "icon" : size}
+      onClick={state === "recording" ? stop : start}
+      disabled={state === "processing"}
+      title={state === "recording" ? "Stop recording" : "Dictate"}
+    >
       {state === "recording" ? (
         <>
-          <Square className="mr-2 h-4 w-4 text-red-500" /> Stop
+          <Square className={`h-4 w-4 text-red-500 ${iconOnly ? "" : "mr-2"}`} />
+          {!iconOnly && "Stop"}
         </>
       ) : state === "processing" ? (
         <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Transcribing…
+          <Loader2 className={`h-4 w-4 animate-spin ${iconOnly ? "" : "mr-2"}`} />
+          {!iconOnly && "Transcribing…"}
         </>
       ) : (
         <>
-          <Mic className="mr-2 h-4 w-4" /> Dictate
+          <Mic className={`h-4 w-4 ${iconOnly ? "" : "mr-2"}`} />
+          {!iconOnly && (label ?? "Dictate")}
         </>
       )}
     </Button>
