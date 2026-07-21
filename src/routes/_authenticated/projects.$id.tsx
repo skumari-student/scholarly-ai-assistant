@@ -1083,14 +1083,15 @@ function VisualsPanel({
     setRunning(true);
     setVisual(null);
     try {
+      const input = {
+        project_id: projectId,
+        kind,
+        source: customSource || sectionSource,
+        prompt,
+        ...(sectionId ? { section_id: sectionId } : {}),
+      };
       const result = await gen({
-        data: {
-          project_id: projectId,
-          section_id: sectionId,
-          kind,
-          source: customSource || sectionSource,
-          prompt,
-        },
+        data: input,
       });
       setVisual(result);
     } catch (e) {
