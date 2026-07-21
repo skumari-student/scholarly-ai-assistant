@@ -25,10 +25,16 @@ export const exportProject = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => schema.parse(d))
   .handler(async ({ data, context }) => {
-    const [{ data: project }, { data: allSections }, { data: refRows }] = await Promise.all([
+    const [{ data: project }, { data: allSections }, { data: refRows }, { data: visualRows }] = await Promise.all([
       context.supabase.from("projects").select("*").eq("id", data.project_id).single(),
       context.supabase.from("sections").select("*").eq("project_id", data.project_id).order("order"),
       context.supabase.from("refs").select("*").eq("project_id", data.project_id),
+      (context.supabase as any)
+        .from("project_visuals")
+        .select("*")
+        .eq("project_id", data.project_id)
+        .order("order", { ascending: true })
+        .order("created_at", { ascending: true }),
     ]);
     if (!project) throw new Error("Project not found");
     const sections: Section[] =
@@ -37,6 +43,10 @@ export const exportProject = createServerFn({ method: "POST" })
         : (allSections ?? []);
     if (!sections.length) throw new Error("No sections to export");
     const refs = (refRows ?? []) as Reference[];
+    const visuals = ((visualRows ?? []) as any[]).filter((v) => {
+      if (data.scope !== "section") return true;
+      return !v.section_id || v.section_id === data.section_id;
+    });
     const style = project.citation_style as CitationStyle;
     const b64utf8 = (s: string) =>
       typeof Buffer !== "undefined"
