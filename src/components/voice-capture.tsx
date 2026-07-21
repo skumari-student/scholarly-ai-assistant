@@ -27,6 +27,7 @@ export function VoiceCapture({
   const nodeRef = useRef<ScriptProcessorNode | null>(null);
   const srcRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
+  const capturedRef = useRef(false);
 
   async function start() {
     try {
@@ -46,13 +47,24 @@ export function VoiceCapture({
       const node = ctx.createScriptProcessor(4096, 1, 1);
       nodeRef.current = node;
       chunksRef.current = [];
+      capturedRef.current = false;
       node.onaudioprocess = (e) => {
+        if (!capturedRef.current) {
+          capturedRef.current = true;
+          console.log("[voice] onaudioprocess fired — audio graph is processing");
+        }
         chunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
       src.connect(node);
-      node.connect(ctx.destination);
+      // Route through a zero-gain node so the ScriptProcessor keeps running
+      // without piping mic audio back out to the speakers (feedback risk).
+      const sink = ctx.createGain();
+      sink.gain.value = 0;
+      node.connect(sink);
+      sink.connect(ctx.destination);
       setState("recording");
-    } catch {
+    } catch (e) {
+      console.error("[voice] start failed", e);
       toast.error("Microphone access denied");
     }
   }
@@ -69,6 +81,7 @@ export function VoiceCapture({
       const chunks = chunksRef.current;
       await ctx.close();
       const wav = encodeWav(chunks, sampleRate, 16000);
+      console.log("[voice] WAV encoded", { chunks: chunks.length, bytes: wav.size, sampleRate });
       if (wav.size < 2048) {
         toast.error("No speech was captured — please try again");
         setState("idle");
@@ -77,50 +90,39 @@ export function VoiceCapture({
       const form = new FormData();
       form.append("file", wav, "recording.wav");
       const res = await fetch("/api/stt", { method: "POST", body: form });
-      if (!res.ok || !res.body) {
+      console.log("[voice] /api/stt response", { status: res.status, contentType: res.headers.get("content-type") });
+      if (!res.ok) {
         const message = await res.text().catch(() => "Transcription failed");
+        console.error("[voice] /api/stt error", res.status, message);
         toast.error(message || "Transcription failed");
         setState("idle");
         return;
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let full = "";
-      let deltas = "";
-      const processEvents = (raw: string) => {
-        const events = raw.split("\n\n");
-        for (const ev of events) {
-          const lines = ev.split("\n").filter((l) => l.startsWith("data:"));
-          if (!lines.length) continue;
-          const payload = lines.map((line) => line.slice(5).trim()).join("\n");
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const obj = JSON.parse(payload);
-            if (obj.type === "transcript.text.done" && obj.text) full = obj.text;
-            else if (obj.type === "transcript.text.delta" && typeof obj.delta === "string") deltas += obj.delta;
-            else if (typeof obj.text === "string" && !full) full = obj.text;
-          } catch {
-            /* ignore malformed partial event */
-          }
-        }
-      };
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        processEvents(events.join("\n\n"));
+      if (!res.body) {
+        toast.error("Transcription response had no body");
+        setState("idle");
+        return;
       }
-      buffer += decoder.decode();
-      if (buffer.trim()) processEvents(buffer);
-      const transcript = (full || deltas).trim();
+      const contentType = res.headers.get("content-type") ?? "";
+      let transcript = "";
+      if (contentType.includes("application/json")) {
+        // Gateway returned a single JSON object instead of an SSE stream.
+        const text = await res.text();
+        console.log("[voice] JSON body from /api/stt", text.slice(0, 500));
+        transcript = extractTranscriptFromJson(text);
+      } else {
+        transcript = await readSSEStream(res);
+      }
+      transcript = transcript.trim();
+      console.log("[voice] final transcript", { length: transcript.length, preview: transcript.slice(0, 200), mode: onCommand ? "command" : "dictation" });
       if (transcript) {
         if (onCommand) await onCommand(transcript);
         else onTranscript?.(transcript);
-      } else toast.error("No transcript returned — try speaking a little longer");
+      } else {
+        toast.error("No transcript returned — try speaking a little longer");
+      }
     } catch (e) {
+      console.error("[voice] stop failed", e);
       toast.error(e instanceof Error ? e.message : "Recording failed");
     } finally {
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -129,6 +131,57 @@ export function VoiceCapture({
       srcRef.current = null;
       ctxRef.current = null;
       setState("idle");
+    }
+  }
+
+  async function readSSEStream(res: Response): Promise<string> {
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let full = "";
+    let deltas = "";
+    const processEvents = (raw: string) => {
+      const events = raw.split("\n\n");
+      for (const ev of events) {
+        const lines = ev.split("\n").filter((l) => l.startsWith("data:"));
+        if (!lines.length) continue;
+        const payload = lines.map((line) => line.slice(5).trim()).join("\n");
+        if (!payload || payload === "[DONE]") continue;
+        try {
+          const obj = JSON.parse(payload);
+          console.log("[voice] SSE event", { type: obj.type, keys: Object.keys(obj) });
+          if (obj.type === "transcript.text.done" && obj.text) full = obj.text;
+          else if (obj.type === "transcript.text.delta" && typeof obj.delta === "string") deltas += obj.delta;
+          else if (typeof obj.text === "string" && !full) full = obj.text;
+        } catch (e) {
+          console.warn("[voice] malformed SSE event", payload.slice(0, 200), e);
+        }
+      }
+    };
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+      processEvents(events.join("\n\n"));
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) processEvents(buffer);
+    return (full || deltas).trim();
+  }
+
+  function extractTranscriptFromJson(text: string): string {
+    try {
+      const obj = JSON.parse(text);
+      if (typeof obj.text === "string") return obj.text;
+      if (typeof obj.transcript === "string") return obj.transcript;
+      if (obj.data && typeof obj.data.text === "string") return obj.data.text;
+      console.warn("[voice] unexpected JSON shape", Object.keys(obj));
+      return "";
+    } catch (e) {
+      console.warn("[voice] could not parse JSON body as JSON", e);
+      return "";
     }
   }
 

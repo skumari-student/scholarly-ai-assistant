@@ -6,7 +6,7 @@ import { chat, chatJSON, pickModel } from "../ai-gateway.server";
 const schema = z.object({
   project_id: z.string().uuid(),
   section_id: z.string().uuid().optional(),
-  command: z.string().min(1).max(4000),
+  command: z.string().min(3).max(4000),
 });
 
 export const runVoiceCommand = createServerFn({ method: "POST" })
@@ -34,12 +34,14 @@ export const runVoiceCommand = createServerFn({ method: "POST" })
     const ctx = section
       ? `Active section: ${section.title}\nContent excerpt:\n${section.content.slice(0, 5000)}`
       : `Project notes:\n${project.context_notes ?? ""}`;
+    console.log("[voice] runVoiceCommand input", { commandLen: data.command.length, preview: data.command.slice(0, 200) });
     const output = await chat({
       model,
       system,
       prompt: `${ctx}\n\nUser command:\n${data.command}`,
       temperature: 0.4,
     });
+    console.log("[voice] runVoiceCommand output", { outputLen: output.length, preview: output.slice(0, 200) });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "voice", model });
     return { output };
   });
@@ -93,7 +95,9 @@ export const extractFromNarration = createServerFn({ method: "POST" })
     const model = pickModel(project.mode);
     const system = `You extract structured research details from a spoken narration. Return strict JSON with keys: topic (string), objectives (string[]), research_questions (string[]), methodology (string), keywords (string[]), notes (string). Empty strings/arrays where unclear. Do not invent details not implied by the narration.`;
     const prompt = `Project: ${project.title} (${project.doc_type}${project.discipline ? `, ${project.discipline}` : ""})\n\nNarration:\n${data.transcript}`;
+    console.log("[voice] extractFromNarration input", { transcriptLen: data.transcript.length, preview: data.transcript.slice(0, 200) });
     const result = await chatJSON<ExtractResult>({ model, system, prompt, temperature: 0.2 });
+    console.log("[voice] extractFromNarration output", { topic: result.topic, objectives: result.objectives?.length, rqs: result.research_questions?.length });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "voice_extract", model });
     return {
       topic: String(result.topic ?? "").slice(0, 500),

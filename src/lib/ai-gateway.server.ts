@@ -122,6 +122,7 @@ export function parseLooseJson<T = unknown>(raw: string): T | undefined {
       .replace(/,\s*([}\]])/g, "$1");
     try { return JSON.parse(cleaned) as T; } catch { /* try next */ }
   }
+  console.warn("[ai-gateway] parseLooseJson failed — raw text (first 300 chars):", String(raw).slice(0, 300));
   return undefined;
 }
 
