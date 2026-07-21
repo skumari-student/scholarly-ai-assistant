@@ -9,35 +9,56 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign in — ScholarlyWrite AI" }] }),
+  validateSearch: (s: Record<string, unknown>) => ({
+    next: typeof s.next === "string" ? s.next : "",
+  }),
   component: AuthPage,
 });
 
+function safeNext(next: string): string {
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+}
+
 function AuthPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const goNext = () => {
+    const target = safeNext(next);
+    // Use full navigation for out-of-router paths like /.lovable/oauth/consent.
+    if (target.startsWith("/.lovable/")) {
+      window.location.href = target;
+    } else {
+      navigate({ to: target, replace: true });
+    }
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/dashboard", replace: true });
+      if (data.session) goNext();
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session) navigate({ to: "/dashboard", replace: true });
+      if (event === "SIGNED_IN" && session) goNext();
     });
     return () => sub.subscription.unsubscribe();
-  }, [navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [next]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
       if (mode === "signup") {
+        const target = safeNext(next);
+        const emailRedirectTo = `${window.location.origin}/auth?next=${encodeURIComponent(target)}`;
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/auth` },
+          options: { emailRedirectTo },
         });
         if (error) throw error;
         if (!data.session) {
@@ -59,9 +80,9 @@ function AuthPage() {
 
   async function google() {
     try {
-      const res = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: `${window.location.origin}/auth`,
-      });
+      const target = safeNext(next);
+      const redirect_uri = `${window.location.origin}/auth?next=${encodeURIComponent(target)}`;
+      const res = await lovable.auth.signInWithOAuth("google", { redirect_uri });
       if (res.error) toast.error("Google sign-in failed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Google sign-in failed");
