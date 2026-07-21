@@ -133,6 +133,9 @@ export function VoiceCapture({
   }
 
   const iconOnly = compact || size === "icon";
+  const isCommand = !!onCommand;
+  const defaultLabel = isCommand ? "Voice command" : "Dictate";
+  const Icon = isCommand ? Wand2 : Mic;
   return (
     <Button
       type="button"
@@ -140,7 +143,7 @@ export function VoiceCapture({
       size={iconOnly ? "icon" : size}
       onClick={state === "recording" ? stop : start}
       disabled={state === "processing"}
-      title={state === "recording" ? "Stop recording" : "Dictate"}
+      title={state === "recording" ? "Stop recording" : defaultLabel}
     >
       {state === "recording" ? (
         <>
@@ -154,8 +157,8 @@ export function VoiceCapture({
         </>
       ) : (
         <>
-          <Mic className={`h-4 w-4 ${iconOnly ? "" : "mr-2"}`} />
-          {!iconOnly && (label ?? "Dictate")}
+          <Icon className={`h-4 w-4 ${iconOnly ? "" : "mr-2"}`} />
+          {!iconOnly && (label ?? defaultLabel)}
         </>
       )}
     </Button>
