@@ -55,6 +55,9 @@ export const generateVisual = createServerFn({ method: "POST" })
     const raw = await chatJSON<Partial<GeneratedVisual>>({ model, system, prompt, temperature: 0.35, maxOutputTokens: 1800 });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: `visual:${data.kind}`, model });
 
+    const labelForKind = (kind: GeneratedVisual["kind"]) =>
+      kind === "chart" ? "Chart" : kind === "concept" ? "Concept map" : kind === "timeline" ? "Timeline" : kind === "figure" ? "Figure" : "Table";
+
     const visual: GeneratedVisual = {
       kind: data.kind,
       title: String(raw.title ?? `${labelForKind(data.kind)} visual`).slice(0, 180),
@@ -70,24 +73,18 @@ export const generateVisual = createServerFn({ method: "POST" })
       bullets: Array.isArray(raw.bullets) ? raw.bullets.slice(0, 8).map((v) => String(v).slice(0, 240)) : [],
     };
 
-    if (!visual.markdown) visual.markdown = visualToMarkdown(visual);
+    if (!visual.markdown) {
+      const lines = [`**${visual.title}**`];
+      if (visual.columns.length && visual.rows.length) {
+        lines.push("", `| ${visual.columns.join(" | ")} |`, `| ${visual.columns.map(() => "---").join(" | ")} |`);
+        for (const row of visual.rows) lines.push(`| ${visual.columns.map((_, i) => row[i] ?? "").join(" | ")} |`);
+      } else if (visual.chart.length) {
+        lines.push("", ...visual.chart.map((p) => `- ${p.label}: ${p.value}`));
+      } else if (visual.bullets.length) {
+        lines.push("", ...visual.bullets.map((b) => `- ${b}`));
+      }
+      if (visual.caption) lines.push("", `*Figure note.* ${visual.caption}`);
+      visual.markdown = lines.join("\n");
+    }
     return visual;
   });
-
-function labelForKind(kind: GeneratedVisual["kind"]) {
-  return kind === "chart" ? "Chart" : kind === "concept" ? "Concept map" : kind === "timeline" ? "Timeline" : kind === "figure" ? "Figure" : "Table";
-}
-
-function visualToMarkdown(visual: GeneratedVisual) {
-  const lines = [`**${visual.title}**`];
-  if (visual.columns.length && visual.rows.length) {
-    lines.push("", `| ${visual.columns.join(" | ")} |`, `| ${visual.columns.map(() => "---").join(" | ")} |`);
-    for (const row of visual.rows) lines.push(`| ${visual.columns.map((_, i) => row[i] ?? "").join(" | ")} |`);
-  } else if (visual.chart.length) {
-    lines.push("", ...visual.chart.map((p) => `- ${p.label}: ${p.value}`));
-  } else if (visual.bullets.length) {
-    lines.push("", ...visual.bullets.map((b) => `- ${b}`));
-  }
-  if (visual.caption) lines.push("", `*Figure note.* ${visual.caption}`);
-  return lines.join("\n");
-}
