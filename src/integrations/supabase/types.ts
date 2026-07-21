@@ -67,6 +67,7 @@ export type Database = {
           project_id: string
           requirements: string | null
           scope: string | null
+          url: string | null
         }
         Insert: {
           audience?: string | null
@@ -79,6 +80,7 @@ export type Database = {
           project_id: string
           requirements?: string | null
           scope?: string | null
+          url?: string | null
         }
         Update: {
           audience?: string | null
@@ -91,6 +93,7 @@ export type Database = {
           project_id?: string
           requirements?: string | null
           scope?: string | null
+          url?: string | null
         }
         Relationships: [
           {
@@ -293,6 +296,63 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      uploads: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          mime: string
+          name: string
+          path: string
+          project_id: string
+          section_id: string | null
+          size: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind?: string
+          mime: string
+          name: string
+          path: string
+          project_id: string
+          section_id?: string | null
+          size?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          mime?: string
+          name?: string
+          path?: string
+          project_id?: string
+          section_id?: string | null
+          size?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "uploads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "uploads_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
             referencedColumns: ["id"]
           },
         ]
