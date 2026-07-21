@@ -549,7 +549,7 @@ function ProjectView({
                 projectId={project.id}
                 sections={sections}
                 activeSectionId={active?.id}
-                onInsertMarkdown={(md) => {
+                onInsertMarkdown={(md: string) => {
                   const next = (content + "\n\n" + md).trim();
                   setContent(next);
                   scheduleSave({ content: next });
