@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "sdk_version": "0.24.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://juzxmhrirdrhazepgfzi.supabase.co/auth/v1",
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "scholarlywrite-ai-mcp",
+      "version": "0.1.0",
+      "title": "ScholarlyWrite AI"
+    },
+    "tools": [
+      {
+        "name": "list_projects",
+        "title": "List projects",
+        "description": "List the signed-in user's ScholarlyWrite AI projects with title, doc type, discipline, citation style, status, and timestamps.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_project",
+        "title": "Get project",
+        "description": "Fetch one project with its sections and references for the signed-in user.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Project UUID."
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_section_content",
+        "title": "Update section content",
+        "description": "Replace the content of a section in the signed-in user's project. Optionally set status to 'draft' or 'completed'.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "section_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Section UUID."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full new content for the section (markdown-friendly plain text)."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "completed"
+              ],
+              "description": "Optional new status."
+            }
+          },
+          "required": [
+            "section_id",
+            "content"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_reference",
+        "title": "Add reference",
+        "description": "Add a bibliographic reference to a project's library for the signed-in user.",
+        "annotations": {
+          "readOnlyHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "authors": {
+              "type": "string",
+              "description": "Comma-separated authors, e.g. 'Smith, J.; Doe, A.'",
+              "default": ""
+            },
+            "year": {
+              "type": "string",
+              "maxLength": 10,
+              "default": ""
+            },
+            "source": {
+              "type": "string",
+              "description": "Journal, book, or publisher.",
+              "default": ""
+            },
+            "doi": {
+              "type": "string",
+              "default": ""
+            },
+            "url": {
+              "type": "string",
+              "default": ""
+            }
+          },
+          "required": [
+            "project_id",
+            "title"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
