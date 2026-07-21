@@ -30,9 +30,11 @@ function LabPage() {
   const qc = useQueryClient();
   const get = useServerFn(getProject);
   const list = useServerFn(listDatasets);
+  const listVis = useServerFn(listVisuals);
+  const delVis = useServerFn(deleteVisual);
   const project = useQuery({ queryKey: ["project", id], queryFn: () => get({ data: { id } }) });
   const datasets = useQuery({ queryKey: ["datasets", id], queryFn: () => list({ data: { project_id: id } }) });
-  const attached = useQuery({ queryKey: ["visuals", id], queryFn: () => useServerFn(listVisuals)({ data: { project_id: id } } as any) });
+  const attached = useQuery({ queryKey: ["visuals", id], queryFn: () => listVis({ data: { project_id: id } }) });
 
   if (!project.data) {
     return (<AppShell><div className="p-8"><Loader2 className="h-5 w-5 animate-spin" /></div></AppShell>);
