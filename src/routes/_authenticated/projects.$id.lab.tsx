@@ -72,7 +72,7 @@ function LabPage() {
                   <div className="text-xs text-muted-foreground">{v.kind}</div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={async () => {
-                  await useServerFn(deleteVisual)({ data: { id: v.id } } as any);
+                  await delVis({ data: { id: v.id } });
                   qc.invalidateQueries({ queryKey: ["visuals", id] });
                 }}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
