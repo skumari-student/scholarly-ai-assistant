@@ -25,7 +25,7 @@ import {
   updateProjectStatus,
   updateProjectCitationStyle,
 } from "@/lib/projects.functions";
-import { runWritingAction } from "@/lib/ai/writing.functions";
+import { citeAllSections, runWritingAction } from "@/lib/ai/writing.functions";
 import {
   generateTopics,
   togglePinTopic,
@@ -40,11 +40,13 @@ import {
   saveTranscript,
   extractFromNarration,
 } from "@/lib/ai/voice.functions";
+import { generateVisual, type GeneratedVisual } from "@/lib/ai/visuals.functions";
 import { addReference, deleteReference, importBibtex } from "@/lib/refs.functions";
 import { formatReferenceList, inTextCitation, type Reference } from "@/lib/citations";
 import { CITATION_STYLES, type CitationStyle } from "@/lib/doc-templates";
 import { countWords } from "@/lib/text";
-import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check } from "lucide-react";
+import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2 } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 export const Route = createFileRoute("/_authenticated/projects/$id")({
   head: () => ({ meta: [{ title: "Editor — ScholarlyWrite AI" }] }),
@@ -62,6 +64,7 @@ const WRITING_ACTIONS = [
   { key: "clarify_method", label: "Clarify method" },
   { key: "clarify_framework", label: "Clarify framework" },
   { key: "plagiarism_check", label: "Plagiarism risk" },
+  { key: "cite", label: "Add citations" },
 ] as const;
 
 const LIT_REVIEW_KEYS = new Set(["literature", "lit_review", "literature_review", "themes"]);
@@ -138,14 +141,16 @@ function ProjectView({
   const [outline, setOutline] = useState(active?.outline ?? "");
   const [aiOutput, setAiOutput] = useState("");
   const [aiRunning, setAiRunning] = useState<string | null>(null);
+  const [citeAllRunning, setCiteAllRunning] = useState(false);
   const [intensive, setIntensive] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRef = useRef<{ content?: string; outline?: string } | null>(null);
+  const pendingRef = useRef<{ sectionId: string; content?: string; outline?: string } | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const update = useServerFn(updateSection);
   const runAction = useServerFn(runWritingAction);
+  const citeAll = useServerFn(citeAllSections);
   const updateMode = useServerFn(updateProjectMode);
   const updateStatus = useServerFn(updateProjectStatus);
   const updateStyle = useServerFn(updateProjectCitationStyle);
@@ -162,7 +167,8 @@ function ProjectView({
     pendingRef.current = null;
     setSaveState("saving");
     try {
-      await update({ data: { id: active.id, ...patch } });
+      const { sectionId, ...changes } = patch;
+      await update({ data: { id: sectionId, ...changes } });
       setSaveState("saved");
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setSaveState("idle"), 2000);
@@ -173,7 +179,7 @@ function ProjectView({
 
   function scheduleSave(next: { content?: string; outline?: string }) {
     if (!active) return;
-    pendingRef.current = { ...(pendingRef.current ?? {}), ...next };
+    pendingRef.current = { sectionId: active.id, ...(pendingRef.current?.sectionId === active.id ? pendingRef.current : {}), ...next };
     setSaveState("dirty");
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -184,7 +190,7 @@ function ProjectView({
   async function saveNow() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     // ensure latest local state is queued
-    pendingRef.current = { ...(pendingRef.current ?? {}), content, outline };
+    if (active) pendingRef.current = { sectionId: active.id, content, outline };
     await flushSave();
   }
 
@@ -236,6 +242,7 @@ function ProjectView({
   }
 
   async function changeStyle(style: CitationStyle) {
+    await saveNow();
     await updateStyle({ data: { id: project.id, citation_style: style } });
     toast.success(`Citation style: ${style}`);
     onRefresh();
@@ -248,6 +255,20 @@ function ProjectView({
   );
 
   const isLitReview = active ? LIT_REVIEW_KEYS.has(active.key) : false;
+
+  async function citeEverySection() {
+    setCiteAllRunning(true);
+    try {
+      await saveNow();
+      const res = await citeAll({ data: { project_id: project.id } });
+      toast.success(`Cited ${res.updated} section${res.updated === 1 ? "" : "s"}`);
+      onRefresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Citation update failed");
+    } finally {
+      setCiteAllRunning(false);
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -320,7 +341,11 @@ function ProjectView({
             return (
               <button
                 key={s.id}
-                onClick={() => setActiveId(s.id)}
+                onClick={() => {
+                  if (debounceRef.current) clearTimeout(debounceRef.current);
+                  void flushSave();
+                  setActiveId(s.id);
+                }}
                 className={`block w-full rounded-md px-2 py-1.5 text-left text-sm ${
                   s.id === active?.id ? "bg-accent font-medium" : "hover:bg-accent/50"
                 }`}
@@ -394,13 +419,14 @@ function ProjectView({
 
         {/* right panel */}
         <div className="w-96 shrink-0 overflow-y-auto border-l border-border bg-card">
-          <Tabs defaultValue="ai" className="w-full">
-            <TabsList className="grid w-full grid-cols-6 rounded-none">
+            <Tabs defaultValue="ai" className="w-full">
+            <TabsList className="grid w-full grid-cols-7 rounded-none">
               <TabsTrigger value="ai">AI</TabsTrigger>
               <TabsTrigger value="refs">Refs</TabsTrigger>
               <TabsTrigger value="voice">Voice</TabsTrigger>
               <TabsTrigger value="topics">Topics</TabsTrigger>
               <TabsTrigger value="brainstorm">Ideas</TabsTrigger>
+              <TabsTrigger value="visuals">Visuals</TabsTrigger>
               <TabsTrigger value="journals">Journals</TabsTrigger>
             </TabsList>
 
@@ -422,6 +448,16 @@ function ProjectView({
                 </div>
               )}
               <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={citeAllRunning || refs.length === 0}
+                  onClick={citeEverySection}
+                  title={refs.length === 0 ? "Add references first" : "Cite every section with saved references"}
+                >
+                  {citeAllRunning ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Quote className="mr-2 h-3 w-3" />}
+                  Cite all sections
+                </Button>
                 {WRITING_ACTIONS.map((a) => (
                   <Button
                     key={a.key}
@@ -479,6 +515,20 @@ function ProjectView({
 
             <TabsContent value="brainstorm" className="p-4">
               <BrainstormPanel projectId={project.id} onRefresh={onRefresh} />
+            </TabsContent>
+
+            <TabsContent value="visuals" className="p-4">
+              <VisualsPanel
+                projectId={project.id}
+                sectionId={active?.id}
+                sectionSource={[outline, content].filter(Boolean).join("\n\n")}
+                onInsert={(markdown) => {
+                  const next = (content + "\n\n" + markdown).trim();
+                  setContent(next);
+                  scheduleSave({ content: next });
+                  toast.success("Visual inserted into section");
+                }}
+              />
             </TabsContent>
 
             <TabsContent value="journals" className="p-4">
