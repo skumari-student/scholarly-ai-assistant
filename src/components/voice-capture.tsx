@@ -111,7 +111,7 @@ export function VoiceCapture({
       }
       buffer += decoder.decode();
       if (buffer.trim()) processEvents(buffer);
-      const transcript = full.trim();
+      const transcript = (full || deltas).trim();
       if (transcript) onTranscript(transcript);
       else toast.error("No transcript returned — try speaking a little longer");
     } catch (e) {
