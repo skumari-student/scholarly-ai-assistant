@@ -355,6 +355,15 @@ function ProjectView({
             <option value="low">Low credit</option>
             <option value="advanced">Advanced</option>
           </select>
+          <Link to="/projects/$id/lab" params={{ id: project.id }}>
+            <Button variant="ghost" size="sm">Data Lab</Button>
+          </Link>
+          <Link to="/projects/$id/journals" params={{ id: project.id }}>
+            <Button variant="ghost" size="sm">Journals</Button>
+          </Link>
+          <Link to="/projects/$id/submit" params={{ id: project.id }}>
+            <Button variant="ghost" size="sm">Submit</Button>
+          </Link>
           <Link to="/projects/$id/export" params={{ id: project.id }}>
             <Button variant="outline" size="sm">
               <FileDown className="mr-2 h-4 w-4" /> Export
