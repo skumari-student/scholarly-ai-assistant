@@ -117,6 +117,34 @@ export const exportProject = createServerFn({ method: "POST" })
           .filter(Boolean)
           .map((p) => `<p>${escape(p).replace(/\n/g, "<br/>")}</p>`)
           .join("\n");
+      const visualsHtml = (() => {
+        if (!visuals.length) return "";
+        const chunks: string[] = ["<h2>Visuals &amp; Analysis</h2>"];
+        for (const v of visuals) {
+          chunks.push(`<h3>${escape(v.title)}</h3>`);
+          if (v.caption) chunks.push(`<p><em>${escape(v.caption)}</em></p>`);
+          const p = v.payload || {};
+          if (p.summary) chunks.push(`<p>${escape(p.summary)}</p>`);
+          if (Array.isArray(p.keyFindings) && p.keyFindings.length)
+            chunks.push(`<ul>${p.keyFindings.map((f: string) => `<li>${escape(f)}</li>`).join("")}</ul>`);
+          const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+          if (table?.columns?.length && table.rows?.length) {
+            const head = `<tr>${table.columns.map((c: string) => `<th>${escape(String(c))}</th>`).join("")}</tr>`;
+            const body = table.rows
+              .map((r: any[]) => `<tr>${table.columns.map((_: any, i: number) => `<td>${escape(String(r[i] ?? ""))}</td>`).join("")}</tr>`)
+              .join("");
+            chunks.push(`<table class="viz" border="1" cellspacing="0" cellpadding="4">${head}${body}</table>`);
+          }
+          const charts = Array.isArray(p.recommendedCharts) ? p.recommendedCharts : [];
+          for (const c of charts) {
+            const line = chartLine(c);
+            if (line) chunks.push(`<p><em>${escape(line)}</em>${c.rationale ? " " + escape(c.rationale) : ""}</p>`);
+          }
+          if (Array.isArray(p.citations) && p.citations.length)
+            chunks.push(`<p class="meta">Cited: ${escape(p.citations.join("; "))}</p>`);
+        }
+        return chunks.join("\n");
+      })();
       const refBlock = refs.length
         ? `<h2>References</h2>\n${formatReferenceList(refs, style)
             .split("\n\n")
