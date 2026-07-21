@@ -1,17 +1,21 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, Square, Loader2 } from "lucide-react";
+import { Mic, Square, Loader2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 // Records mic audio via Web Audio and encodes a 16kHz mono WAV, then streams it to /api/stt.
+// - When `onCommand` is provided, the transcript is passed to `onCommand` (command mode).
+// - Otherwise the transcript is passed to `onTranscript` (dictation).
 export function VoiceCapture({
   onTranscript,
+  onCommand,
   label,
   size = "sm",
   variant = "outline",
   compact = false,
 }: {
-  onTranscript: (text: string) => void;
+  onTranscript?: (text: string) => void;
+  onCommand?: (text: string) => void | Promise<void>;
   label?: string;
   size?: "sm" | "icon" | "default";
   variant?: "outline" | "ghost" | "secondary" | "default";
