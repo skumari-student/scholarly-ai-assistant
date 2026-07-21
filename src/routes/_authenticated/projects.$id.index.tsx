@@ -1786,6 +1786,28 @@ function JournalsPanel({ projectId, journals, onRefresh }: { projectId: string; 
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         <VoiceCapture onTranscript={(t) => setTopic((s) => (s + " " + t).trim())} />
+        <VoiceCapture
+          label="Voice: suggest now"
+          onCommand={async (t) => {
+            setTopic(t);
+            setRunning(true);
+            try {
+              await gen({
+                data: {
+                  project_id: projectId,
+                  topic: t,
+                  word_count: wordCount ? parseInt(wordCount, 10) : undefined,
+                  open_access: oa,
+                  impact,
+                },
+              });
+              onRefresh();
+              toast.success("Journals suggested from voice");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Failed");
+            } finally { setRunning(false); }
+          }}
+        />
         <Button size="sm" onClick={generate} disabled={running}>
           {running ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Sparkles className="mr-2 h-3 w-3" />} Suggest journals
         </Button>
