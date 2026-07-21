@@ -20,7 +20,7 @@ export interface QuantResult {
   method: QuantMethod;
   title: string;
   narrative: string;
-  stats: unknown;
+  stats: any;
   table: { columns: string[]; rows: (string | number)[][] };
   chart?: {
     type: "bar" | "line" | "scatter" | "heatmap";
@@ -28,7 +28,7 @@ export interface QuantResult {
     y?: string;
     data: Array<{ label: string; value: number; series?: string; z?: number }>;
   };
-  inputs: Record<string, unknown>;
+  inputs: Record<string, any>;
   citations: string[];
 }
 

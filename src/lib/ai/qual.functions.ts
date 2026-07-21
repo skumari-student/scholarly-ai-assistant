@@ -16,7 +16,7 @@ export interface QualResult {
   themes: QualTheme[];
   table: { columns: string[]; rows: string[][] };
   citations: string[];
-  stats?: unknown;
+  stats?: any;
 }
 
 const schema = z.object({
