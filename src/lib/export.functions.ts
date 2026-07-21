@@ -54,6 +54,42 @@ export const exportProject = createServerFn({ method: "POST" })
         : btoa(unescape(encodeURIComponent(s)));
     const filenameBase = slug(project.title) + (data.scope === "section" ? "-section" : "");
 
+    // ---- visual helpers ----
+    const chartLine = (c: any) =>
+      c?.type && c?.x && c?.y ? `Suggested chart: ${c.type} of ${c.y} by ${c.x}.` : c?.type ? `Suggested chart: ${c.type}.` : "";
+    const visualsMd = (): string => {
+      if (!visuals.length) return "";
+      const out: string[] = ["## Visuals & Analysis", ""];
+      for (const v of visuals) {
+        out.push(`### ${v.title}`);
+        if (v.caption) out.push("", v.caption);
+        const p = v.payload || {};
+        if (p.summary) out.push("", p.summary);
+        if (Array.isArray(p.keyFindings) && p.keyFindings.length) {
+          out.push("", ...p.keyFindings.map((f: string) => `- ${f}`));
+        }
+        const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+        if (table?.columns?.length && table.rows?.length) {
+          out.push("", `| ${table.columns.join(" | ")} |`, `| ${table.columns.map(() => "---").join(" | ")} |`);
+          for (const row of table.rows) out.push(`| ${table.columns.map((_: any, i: number) => row[i] ?? "").join(" | ")} |`);
+        }
+        if (Array.isArray(p.recommendedCharts)) {
+          for (const c of p.recommendedCharts) {
+            const line = chartLine(c);
+            if (line) out.push("", `_${line}_${c.rationale ? " " + c.rationale : ""}`);
+          }
+        } else if (p.chart) {
+          const line = chartLine(p);
+          if (line) out.push("", `_${line}_`);
+        }
+        if (Array.isArray(p.citations) && p.citations.length) {
+          out.push("", `Cited: ${p.citations.join("; ")}`);
+        }
+        out.push("");
+      }
+      return out.join("\n") + "\n";
+    };
+
     if (data.format === "md") {
       const parts: string[] = [];
       if (data.draft) parts.push(`> ${DRAFT_NOTE}\n`);
