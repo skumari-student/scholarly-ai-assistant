@@ -436,6 +436,7 @@ function ProjectView({
               <TabsTrigger value="brainstorm">Ideas</TabsTrigger>
               <TabsTrigger value="visuals">Visuals</TabsTrigger>
               <TabsTrigger value="journals">Journals</TabsTrigger>
+              <TabsTrigger value="library">Library</TabsTrigger>
             </TabsList>
 
             <TabsContent value="ai" className="p-4">
