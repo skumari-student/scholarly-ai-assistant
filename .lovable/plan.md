@@ -1,58 +1,83 @@
-# Phase 1.1 Fix Pass — Plan
+## Phase 1.2 — Analysis & Visuals
 
-Most of these features were touched in earlier turns but you're still seeing them broken. Rather than re-patching blindly, step 1 is a targeted diagnostic pass against the current files so each fix is grounded in what's actually wrong right now.
+Rename the existing **Visuals** tab to **Analysis & Visuals** and extend it with a data-upload path, richer chart preview, and export attachment. Reuse the existing `generateVisual` + `runVoiceCommand` pipelines to keep credits low.
 
-## Step 1 — Diagnose (read-only)
+### 1. Server: data parsing + analysis
 
-Batch-read the current state of:
-- `src/components/voice-capture.tsx` (SSE parsing, MIME/extension handling)
-- `src/routes/api/stt.ts` (already confirmed: proxies to `openai/gpt-4o-mini-transcribe`, streams SSE)
-- `src/lib/ai/voice.functions.ts`, `src/lib/ai/topics.functions.ts`
-- `src/lib/ai/writing.functions.ts` (verify `intensive` + `cite` paths, ref context build)
-- `src/lib/ai-gateway.server.ts` (model wiring, error surfacing)
-- `src/lib/export.functions.ts` + `src/routes/_authenticated/projects.$id.export.tsx`
-- `src/routes/_authenticated/projects.$id.tsx` (header style selector, save pill, Brainstorm tab, Library/Journals panels, mic wiring per tab)
-- `src/lib/projects.functions.ts` (updateProjectCitationStyle / updateProjectStatus presence)
+- New `src/lib/analysis.server.ts`:
+  - `parseCsv(text)` — tiny CSV parser (quoted fields, commas/tabs, first row = headers).
+  - `parseXlsx(bytes)` — use existing `xlsx` capability via lazy `await import("xlsx")` inside handler; add to deps.
+  - Returns `{ columns: string[]; rows: (string|number)[][]; rowCount; sample }` with rows capped at 200 and 20 columns to bound prompts.
+- New `src/lib/ai/analysis.functions.ts`:
+  - `analyzeDataset({ project_id, upload_id? , inline_csv? , prompt? })` — loads file from `uploads` bucket (or inline paste), parses it, sends a **summary + sample** (max ~40 rows) to AI with a strict JSON schema:
+    ```
+    { summary, keyFindings[], recommendedCharts:[{title,type:'bar'|'line'|'pie'|'scatter',x,y,rationale,data:[{label,value,series?}]}], table:{title,columns,rows}, citations[] }
+    ```
+    Uses `pickModel(project.mode)` and `chatJSON`, plus `project.refs` list so the AI can suggest existing citations.
+  - `analyzeSectionText({ project_id, section_id, prompt? })` — same output shape, source = section outline+draft; encourages "as reported by [Author, Year]" wording using project refs.
 
-Then run a live check: dictate into the editor and inspect `/api/stt` network + console, and try one export of each format, capturing the actual error message. Only after that, apply fixes below (scoped to what the reads/repro actually show is broken — no speculative rewrites).
+### 2. Chart rendering
 
-## Step 2 — Fixes by area
+- Extend `VisualPreview` (already uses Recharts `BarChart`) with `LineChart`, `PieChart`, `ScatterChart`. Chart type comes from the AI response.
+- New `<DatasetChart chart={rec}>` renders a single suggested chart card with title, rationale, data-fields chip, and preview.
 
-### 2.1 Dictation / voice capture
-- If `VoiceCapture` is not mounted in Brainstorm / Topics / Journals / per-section, add it there with an `onTranscript` handler that writes to the correct field.
-- If SSE deltas drop or `done.text` is empty, fix the parser to accumulate `transcript.text.delta` and fall back to concatenated deltas.
-- Ensure the uploaded WAV's filename matches its MIME (`.wav`) so the provider doesn't 400.
-- On non-2xx `/api/stt`, surface the server message via `toast.error`; on empty transcript show "No speech detected".
-- Command mode: pipe transcript through `runVoiceCommand` (editor) or `extractFromNarration` (Brainstorm/Topics) and open the existing Apply panel.
+### 3. UI: Analysis & Visuals panel
 
-### 2.2 Brainstorm + topic extraction
-- Verify `brainstormIdeas` and `extractTopicFromText` exist, are wrapped in `createServerFn`, and return typed JSON (`ideas[]`, `problems[]`, `questions[]`, `implicitTopic`, `betterStatements[]`, `subtopics[]`).
-- In the Brainstorm tab, wire buttons to `useServerFn(...)` + local `useState` (not `useQuery` unless keyed), render results, and show loading/error states.
-- "Extract from current section" passes `sections[current].content`; voice extraction passes the transcript.
+Rewrite `VisualsPanel` (kept in same file) as a tabbed sub-panel:
 
-### 2.3 Citation style + save
-- Header: shadcn `<Select>` bound to `project.citation_style`, `onValueChange` → `updateProjectCitationStyle` + invalidate project query so `ReferencesPanel` and formatters re-render.
-- Save state machine in the editor: `idle | dirty | saving | saved`. `scheduleSave` sets `dirty` on change, `saving` when debounce fires, `saved` on success (revert to `idle` after 2s). "Save now" flushes debounce and calls the same mutation.
-- Confirm `formatReferenceList` / in-text citation helpers read the live `project.citation_style`.
+- **Sub-tab "Text"** — current behaviour (kind selector + prompt + generate single visual). Keep as-is.
+- **Sub-tab "Data"** — new:
+  - Source picker: **This section's text** | **Upload data file** | **Paste CSV**.
+  - Upload uses existing `createUploadUrl`/`listUploads` (project-uploads bucket, accepts `.csv,.xlsx,.xls`). Show list of uploaded data files with "Analyze" button.
+  - Paste CSV textarea (fast path, no upload).
+  - "Summarize data & propose visuals" button → calls `analyzeDataset`.
+  - Result card: summary text, key findings bullets, rendered HTML table, and a grid of chart previews (one card per recommended chart). Each card has:
+    - **Insert description** — inserts a text block (title + caption + which refs cited) into the current section.
+    - **Insert table (markdown)** — inserts markdown table into section.
+    - **Attach to export** — persists a `visual` row (see #5) so it appears in the export.
+- Dictation mic at top of Data sub-tab: reuse `VoiceCapture` → `extractFromNarration` (already in project) to fill the prompt/`variables` field; long narration becomes analysis request.
 
-### 2.4 Per-section citations
-- Confirm `runWritingAction` receives `{ intensive, refs }` and its prompt builds a compact ref context (author-year + title + id) and instructs the model to insert in-text citations in the current style.
-- Add a `cite` action (or reuse existing) available on every section that annotates the current draft with citations drawn from the project library.
-- `citeAllSections` iterates sections and applies `cite`; wire a button in the header for one-shot pass.
+### 4. Persistence: attached visuals
 
-### 2.5 Export
-- Diagnose actual failure from the network response / thrown error (likely candidates: DOCX `Packer.toBase64String` in Worker runtime, `Buffer` usage, `docx` dynamic import, or missing `scope`/`section_id` in payload).
-- Ensure `exportProject` returns `{ filename, mime, contentB64 }` for all three formats and that the client decodes base64 → Blob → download.
-- PDF via server-generated HTML rendered in a hidden iframe → `print()` (already scaffolded — verify iframe cleanup and CSS `@page`).
-- Export page: format selector (DOCX/PDF/MD), scope selector (Full / Current section) with section dropdown, Draft/Final toggle, progress toast + inline error on failure.
+- Small new table `project_visuals` (project_id, section_id nullable, kind, title, caption, payload jsonb, order, timestamps) with RLS `auth.uid() = user_id` via project ownership. Migration will include GRANT + policies.
+- Server fns: `listVisuals(project_id)`, `attachVisual(payload)`, `deleteVisual(id)`.
+- Not persisting chart images — payload holds the JSON so export can re-emit the markdown/table.
 
-## Step 3 — Verify
+### 5. Export integration (light)
 
-- Playwright: sign in, open a project, dictate into a section, run brainstorm, switch citation style, toggle Intensive on Lit Review + Generate, export each format at each scope. Screenshot each result.
-- Confirm no TS errors and no runtime errors in console.
+- `src/lib/export.functions.ts` — when a project has attached visuals, append **"## Visuals & Analysis"** to Markdown, HTML, and DOCX outputs. For each visual: title, caption, markdown table (rendered as real table in DOCX/HTML), and a short "Suggested chart: <type> of <x> vs <y>" line. No chart drawing.
 
-## Out of scope
-Auth, Data Lab, journal DB, submission assistant — untouched.
+### 6. Housekeeping
 
-## Deliverable
-On completion I'll list every file changed so you can smoke-test each area.
+- Rename tab label to **"Analysis"** in the TabsList (keeps `value="visuals"` for stability).
+- Add `xlsx` to package.json.
+- Reuse existing `uploads` table (kind already covers files); no schema change there.
+
+### Technical notes
+
+```text
+Client → analyzeDataset (serverFn, auth) → parse in worker (bounded)
+                                        → chatJSON({project.mode})
+                                        → save ai_usage row
+                                        → return {summary,findings,charts[],table,citations}
+Client renders → Recharts by chart.type; user picks Insert / Attach
+attachVisual → project_visuals row (RLS by owner)
+exportProject → append Visuals & Analysis section from project_visuals
+```
+
+Credit safety: cap rows to 40 in prompt, columns to 20, prompt total ≤ 6k chars; use Flash by default (project.mode = "low_credit"); one AI call per action.
+
+### How to test after build
+
+1. Open any project → right panel → **Analysis** tab.
+2. **Text path**: pick "Table", click Generate — same as before.
+3. **Data path**: sub-tab **Data** → paste this CSV and click *Summarize*:
+   ```
+   Group,Pre,Post
+   Control,12,14
+   Treatment,11,19
+   ```
+   Expect: summary text, findings bullets, one HTML table, 1–3 chart previews (bar/line/pie).
+4. Upload a small `.csv` or `.xlsx` (≤200 rows) → click **Analyze** on the file row → same result.
+5. Click **Attach to export** on a chart card → open **Export** → download DOCX/Markdown → verify a "Visuals & Analysis" section appears with the table and chart description.
+6. Dictate: click mic in Data sub-tab, say *"Compare pre and post scores between control and treatment groups, suggest a bar chart"* — prompt fills in, run generates matching visuals.

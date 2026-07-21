@@ -25,10 +25,16 @@ export const exportProject = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => schema.parse(d))
   .handler(async ({ data, context }) => {
-    const [{ data: project }, { data: allSections }, { data: refRows }] = await Promise.all([
+    const [{ data: project }, { data: allSections }, { data: refRows }, { data: visualRows }] = await Promise.all([
       context.supabase.from("projects").select("*").eq("id", data.project_id).single(),
       context.supabase.from("sections").select("*").eq("project_id", data.project_id).order("order"),
       context.supabase.from("refs").select("*").eq("project_id", data.project_id),
+      (context.supabase as any)
+        .from("project_visuals")
+        .select("*")
+        .eq("project_id", data.project_id)
+        .order("order", { ascending: true })
+        .order("created_at", { ascending: true }),
     ]);
     if (!project) throw new Error("Project not found");
     const sections: Section[] =
@@ -37,12 +43,52 @@ export const exportProject = createServerFn({ method: "POST" })
         : (allSections ?? []);
     if (!sections.length) throw new Error("No sections to export");
     const refs = (refRows ?? []) as Reference[];
+    const visuals = ((visualRows ?? []) as any[]).filter((v) => {
+      if (data.scope !== "section") return true;
+      return !v.section_id || v.section_id === data.section_id;
+    });
     const style = project.citation_style as CitationStyle;
     const b64utf8 = (s: string) =>
       typeof Buffer !== "undefined"
         ? Buffer.from(s, "utf8").toString("base64")
         : btoa(unescape(encodeURIComponent(s)));
     const filenameBase = slug(project.title) + (data.scope === "section" ? "-section" : "");
+
+    // ---- visual helpers ----
+    const chartLine = (c: any) =>
+      c?.type && c?.x && c?.y ? `Suggested chart: ${c.type} of ${c.y} by ${c.x}.` : c?.type ? `Suggested chart: ${c.type}.` : "";
+    const visualsMd = (): string => {
+      if (!visuals.length) return "";
+      const out: string[] = ["## Visuals & Analysis", ""];
+      for (const v of visuals) {
+        out.push(`### ${v.title}`);
+        if (v.caption) out.push("", v.caption);
+        const p = v.payload || {};
+        if (p.summary) out.push("", p.summary);
+        if (Array.isArray(p.keyFindings) && p.keyFindings.length) {
+          out.push("", ...p.keyFindings.map((f: string) => `- ${f}`));
+        }
+        const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+        if (table?.columns?.length && table.rows?.length) {
+          out.push("", `| ${table.columns.join(" | ")} |`, `| ${table.columns.map(() => "---").join(" | ")} |`);
+          for (const row of table.rows) out.push(`| ${table.columns.map((_: any, i: number) => row[i] ?? "").join(" | ")} |`);
+        }
+        if (Array.isArray(p.recommendedCharts)) {
+          for (const c of p.recommendedCharts) {
+            const line = chartLine(c);
+            if (line) out.push("", `_${line}_${c.rationale ? " " + c.rationale : ""}`);
+          }
+        } else if (p.chart) {
+          const line = chartLine(p);
+          if (line) out.push("", `_${line}_`);
+        }
+        if (Array.isArray(p.citations) && p.citations.length) {
+          out.push("", `Cited: ${p.citations.join("; ")}`);
+        }
+        out.push("");
+      }
+      return out.join("\n") + "\n";
+    };
 
     if (data.format === "md") {
       const parts: string[] = [];
@@ -51,6 +97,8 @@ export const exportProject = createServerFn({ method: "POST" })
       for (const s of sections) {
         parts.push(`## ${s.title}\n\n${s.content || "_(empty)_"}\n`);
       }
+      const vMd = visualsMd();
+      if (vMd) parts.push(vMd);
       if (refs.length) parts.push(`## References\n\n${formatReferenceList(refs, style)}\n`);
       const md = parts.join("\n");
       return {
@@ -69,6 +117,34 @@ export const exportProject = createServerFn({ method: "POST" })
           .filter(Boolean)
           .map((p) => `<p>${escape(p).replace(/\n/g, "<br/>")}</p>`)
           .join("\n");
+      const visualsHtml = (() => {
+        if (!visuals.length) return "";
+        const chunks: string[] = ["<h2>Visuals &amp; Analysis</h2>"];
+        for (const v of visuals) {
+          chunks.push(`<h3>${escape(v.title)}</h3>`);
+          if (v.caption) chunks.push(`<p><em>${escape(v.caption)}</em></p>`);
+          const p = v.payload || {};
+          if (p.summary) chunks.push(`<p>${escape(p.summary)}</p>`);
+          if (Array.isArray(p.keyFindings) && p.keyFindings.length)
+            chunks.push(`<ul>${p.keyFindings.map((f: string) => `<li>${escape(f)}</li>`).join("")}</ul>`);
+          const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+          if (table?.columns?.length && table.rows?.length) {
+            const head = `<tr>${table.columns.map((c: string) => `<th>${escape(String(c))}</th>`).join("")}</tr>`;
+            const body = table.rows
+              .map((r: any[]) => `<tr>${table.columns.map((_: any, i: number) => `<td>${escape(String(r[i] ?? ""))}</td>`).join("")}</tr>`)
+              .join("");
+            chunks.push(`<table class="viz" border="1" cellspacing="0" cellpadding="4">${head}${body}</table>`);
+          }
+          const charts = Array.isArray(p.recommendedCharts) ? p.recommendedCharts : [];
+          for (const c of charts) {
+            const line = chartLine(c);
+            if (line) chunks.push(`<p><em>${escape(line)}</em>${c.rationale ? " " + escape(c.rationale) : ""}</p>`);
+          }
+          if (Array.isArray(p.citations) && p.citations.length)
+            chunks.push(`<p class="meta">Cited: ${escape(p.citations.join("; "))}</p>`);
+        }
+        return chunks.join("\n");
+      })();
       const refBlock = refs.length
         ? `<h2>References</h2>\n${formatReferenceList(refs, style)
             .split("\n\n")
@@ -89,12 +165,15 @@ export const exportProject = createServerFn({ method: "POST" })
   .meta { color:#666; font-size:10pt; margin-bottom:18pt; }
   .draft-note { position: fixed; bottom: 12pt; left: 0; right: 0; text-align:center; font-size: 10pt; color:#a00; }
   .ref { text-indent: -1.5em; padding-left: 1.5em; }
+  table.viz { border-collapse: collapse; margin: 8pt 0 12pt; font-size: 10pt; }
+  table.viz th { background:#f4f4f4; text-align:left; }
   ${draftCss}
   @media print { body { padding: 0; max-width: none; } }
 </style></head><body>
 <h1>${escape(project.title)}</h1>
 <div class="meta">${escape(project.doc_type || "")} · ${escape(style)} · ${data.draft ? "Draft" : "Final"} version</div>
 ${sections.map((s) => `<h2>${escape(s.title)}</h2>\n${paragraphs(s.content) || "<p><em>(empty)</em></p>"}`).join("\n")}
+${visualsHtml}
 ${refBlock}
 ${draftFooter}
 </body></html>`;
@@ -140,6 +219,73 @@ ${draftFooter}
             spacing: { after: 120 },
           }),
         );
+      }
+    }
+    if (visuals.length) {
+      children.push(
+        new docx.Paragraph({
+          text: "Visuals & Analysis",
+          heading: docx.HeadingLevel.HEADING_1,
+          spacing: { before: 240, after: 120 },
+        }),
+      );
+      for (const v of visuals) {
+        children.push(
+          new docx.Paragraph({
+            text: v.title,
+            heading: docx.HeadingLevel.HEADING_2,
+            spacing: { before: 160, after: 80 },
+          }),
+        );
+        if (v.caption)
+          children.push(new docx.Paragraph({ children: [new docx.TextRun({ text: v.caption, italics: true })], spacing: { after: 80 } }));
+        const p = v.payload || {};
+        if (p.summary) children.push(new docx.Paragraph({ children: [new docx.TextRun(String(p.summary))], spacing: { after: 80 } }));
+        if (Array.isArray(p.keyFindings)) {
+          for (const f of p.keyFindings)
+            children.push(new docx.Paragraph({ children: [new docx.TextRun(`• ${f}`)], spacing: { after: 60 } }));
+        }
+        const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+        if (table?.columns?.length && table.rows?.length) {
+          const rows = [
+            new docx.TableRow({
+              children: table.columns.map(
+                (c: string) =>
+                  new docx.TableCell({
+                    children: [new docx.Paragraph({ children: [new docx.TextRun({ text: String(c), bold: true })] })],
+                  }),
+              ),
+            }),
+            ...table.rows.map(
+              (r: any[]) =>
+                new docx.TableRow({
+                  children: table.columns.map(
+                    (_: any, i: number) =>
+                      new docx.TableCell({ children: [new docx.Paragraph(String(r[i] ?? ""))] }),
+                  ),
+                }),
+            ),
+          ];
+          children.push(new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } }));
+        }
+        const charts = Array.isArray(p.recommendedCharts) ? p.recommendedCharts : [];
+        for (const c of charts) {
+          const line = chartLine(c);
+          if (line)
+            children.push(
+              new docx.Paragraph({
+                children: [new docx.TextRun({ text: line, italics: true })],
+                spacing: { after: 60 },
+              }),
+            );
+        }
+        if (Array.isArray(p.citations) && p.citations.length)
+          children.push(
+            new docx.Paragraph({
+              children: [new docx.TextRun({ text: `Cited: ${p.citations.join("; ")}`, color: "555555" })],
+              spacing: { after: 120 },
+            }),
+          );
       }
     }
     if (refs.length) {

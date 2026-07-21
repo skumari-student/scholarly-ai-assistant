@@ -123,6 +123,63 @@ export type Database = {
         }
         Relationships: []
       }
+      project_visuals: {
+        Row: {
+          caption: string | null
+          created_at: string
+          id: string
+          kind: string
+          order: number
+          payload: Json
+          project_id: string
+          section_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          order?: number
+          payload?: Json
+          project_id: string
+          section_id?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          order?: number
+          payload?: Json
+          project_id?: string
+          section_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_visuals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_visuals_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           citation_style: string

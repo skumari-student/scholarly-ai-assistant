@@ -41,6 +41,13 @@ import {
   extractFromNarration,
 } from "@/lib/ai/voice.functions";
 import { generateVisual, type GeneratedVisual } from "@/lib/ai/visuals.functions";
+import {
+  analyzeDataset,
+  analyzeSectionText,
+  type AnalysisResult,
+  type RecommendedChart,
+} from "@/lib/ai/analysis.functions";
+import { attachVisual, listVisuals, deleteVisual, type AttachedVisual } from "@/lib/visuals.functions";
 import { addReference, deleteReference, importBibtex } from "@/lib/refs.functions";
 import {
   listUploads,
@@ -53,8 +60,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatReferenceList, inTextCitation, type Reference } from "@/lib/citations";
 import { CITATION_STYLES, type CitationStyle } from "@/lib/doc-templates";
 import { countWords } from "@/lib/text";
-import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2, X, BarChart3 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  Cell,
+  Scatter,
+  ScatterChart,
+  ZAxis,
+  Tooltip,
+} from "recharts";
 
 export const Route = createFileRoute("/_authenticated/projects/$id/")({
   head: () => ({ meta: [{ title: "Editor — ScholarlyWrite AI" }] }),
@@ -434,7 +457,7 @@ function ProjectView({
               <TabsTrigger value="voice">Voice</TabsTrigger>
               <TabsTrigger value="topics">Topics</TabsTrigger>
               <TabsTrigger value="brainstorm">Ideas</TabsTrigger>
-              <TabsTrigger value="visuals">Visuals</TabsTrigger>
+              <TabsTrigger value="visuals">Analysis</TabsTrigger>
               <TabsTrigger value="journals">Journals</TabsTrigger>
               <TabsTrigger value="library">Library</TabsTrigger>
             </TabsList>
@@ -1095,32 +1118,100 @@ function VisualsPanel({
   sectionSource: string;
   onInsert: (markdown: string) => void;
 }) {
+  const [mode, setMode] = useState<"text" | "data">("text");
+  return (
+    <div>
+      <div className="mb-3 inline-flex rounded-md border border-border bg-muted p-0.5 text-xs">
+        <button
+          className={`rounded px-3 py-1 ${mode === "text" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+          onClick={() => setMode("text")}
+        >
+          Text
+        </button>
+        <button
+          className={`rounded px-3 py-1 ${mode === "data" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+          onClick={() => setMode("data")}
+        >
+          Data
+        </button>
+      </div>
+      {mode === "text" ? (
+        <TextVisualsSection
+          projectId={projectId}
+          sectionId={sectionId}
+          sectionSource={sectionSource}
+          onInsert={onInsert}
+        />
+      ) : (
+        <DataAnalysisSection
+          projectId={projectId}
+          sectionId={sectionId}
+          onInsert={onInsert}
+        />
+      )}
+      <AttachedVisualsList projectId={projectId} />
+    </div>
+  );
+}
+
+function TextVisualsSection({
+  projectId,
+  sectionId,
+  sectionSource,
+  onInsert,
+}: {
+  projectId: string;
+  sectionId?: string;
+  sectionSource: string;
+  onInsert: (markdown: string) => void;
+}) {
   const [kind, setKind] = useState<GeneratedVisual["kind"]>("table");
   const [prompt, setPrompt] = useState("");
   const [customSource, setCustomSource] = useState("");
   const [running, setRunning] = useState(false);
   const [visual, setVisual] = useState<GeneratedVisual | null>(null);
   const gen = useServerFn(generateVisual);
+  const attach = useServerFn(attachVisual);
+  const qc = useQueryClient();
 
   async function run() {
     setRunning(true);
     setVisual(null);
     try {
-      const input = {
-        project_id: projectId,
-        kind,
-        source: customSource || sectionSource,
-        prompt,
-        ...(sectionId ? { section_id: sectionId } : {}),
-      };
       const result = await gen({
-        data: input,
+        data: {
+          project_id: projectId,
+          kind,
+          source: customSource || sectionSource,
+          prompt,
+          ...(sectionId ? { section_id: sectionId } : {}),
+        },
       });
       setVisual(result);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Visual generation failed");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function attachThis() {
+    if (!visual) return;
+    try {
+      await attach({
+        data: {
+          project_id: projectId,
+          section_id: sectionId ?? null,
+          kind: visual.kind,
+          title: visual.title,
+          caption: visual.caption,
+          payload: visual,
+        },
+      });
+      toast.success("Attached to export");
+      qc.invalidateQueries({ queryKey: ["visuals", projectId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Attach failed");
     }
   }
 
@@ -1176,11 +1267,392 @@ function VisualsPanel({
           {visual.caption && <div className="mt-1 text-xs text-muted-foreground">{visual.caption}</div>}
           <VisualPreview visual={visual} />
           <Textarea rows={7} className="mt-3 font-mono text-xs" value={visual.markdown} readOnly />
-          <Button size="sm" className="mt-3" onClick={() => onInsert(visual.markdown)}>
-            Insert into section
-          </Button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => onInsert(visual.markdown)}>Insert into section</Button>
+            <Button size="sm" variant="outline" onClick={attachThis}>Attach to export</Button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DataAnalysisSection({
+  projectId,
+  sectionId,
+  onInsert,
+}: {
+  projectId: string;
+  sectionId?: string;
+  onInsert: (markdown: string) => void;
+}) {
+  const [source, setSource] = useState<"section" | "paste" | "upload">("paste");
+  const [csv, setCsv] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [selectedUploadId, setSelectedUploadId] = useState<string>("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const runData = useServerFn(analyzeDataset);
+  const runText = useServerFn(analyzeSectionText);
+  const attach = useServerFn(attachVisual);
+  const listUploadsFn = useServerFn(listUploads);
+  const createUrl = useServerFn(createUploadUrl);
+  const recordFn = useServerFn(recordUpload);
+  const qc = useQueryClient();
+
+  const uploadsQ = useQuery({
+    queryKey: ["uploads", projectId],
+    queryFn: () => listUploadsFn({ data: { project_id: projectId } }),
+  });
+  const dataFiles = (uploadsQ.data ?? []).filter((u: any) => /\.(csv|xlsx?|tsv)$/i.test(u.name));
+
+  async function uploadFile(file: File) {
+    setUploading(true);
+    try {
+      const { path, signedUrl } = await createUrl({ data: { project_id: projectId, name: file.name } });
+      const put = await fetch(signedUrl, { method: "PUT", body: file, headers: { "content-type": file.type || "application/octet-stream" } });
+      if (!put.ok) throw new Error("Upload failed");
+      await recordFn({ data: { project_id: projectId, path, name: file.name, mime: file.type || "text/csv", size: file.size } });
+      await qc.invalidateQueries({ queryKey: ["uploads", projectId] });
+      toast.success("Data file uploaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function analyze() {
+    setRunning(true);
+    setResult(null);
+    try {
+      let r: AnalysisResult;
+      if (source === "section") {
+        if (!sectionId) throw new Error("Open a section first");
+        r = await runText({ data: { project_id: projectId, section_id: sectionId, prompt } });
+      } else if (source === "paste") {
+        if (!csv.trim()) throw new Error("Paste some CSV first");
+        r = await runData({ data: { project_id: projectId, inline_csv: csv, prompt, ...(sectionId ? { section_id: sectionId } : {}) } });
+      } else {
+        if (!selectedUploadId) throw new Error("Select an uploaded file");
+        r = await runData({ data: { project_id: projectId, upload_id: selectedUploadId, prompt, ...(sectionId ? { section_id: sectionId } : {}) } });
+      }
+      setResult(r);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Analysis failed");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function attachChart(chart: RecommendedChart) {
+    if (!result) return;
+    try {
+      await attach({
+        data: {
+          project_id: projectId,
+          section_id: sectionId ?? null,
+          kind: `chart:${chart.type}`,
+          title: chart.title,
+          caption: chart.rationale,
+          payload: {
+            summary: result.summary,
+            recommendedCharts: [chart],
+            citations: result.citations,
+          },
+        },
+      });
+      toast.success("Chart attached to export");
+      qc.invalidateQueries({ queryKey: ["visuals", projectId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Attach failed");
+    }
+  }
+
+  async function attachSummary() {
+    if (!result) return;
+    try {
+      await attach({
+        data: {
+          project_id: projectId,
+          section_id: sectionId ?? null,
+          kind: "analysis",
+          title: result.table.title || "Data analysis",
+          caption: result.summary.slice(0, 300),
+          payload: {
+            summary: result.summary,
+            keyFindings: result.keyFindings,
+            table: result.table,
+            recommendedCharts: result.recommendedCharts,
+            citations: result.citations,
+          },
+        },
+      });
+      toast.success("Analysis attached to export");
+      qc.invalidateQueries({ queryKey: ["visuals", projectId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Attach failed");
+    }
+  }
+
+  function tableToMarkdown(t: AnalysisResult["table"]): string {
+    if (!t.columns.length || !t.rows.length) return "";
+    const lines = [`**${t.title}**`, "", `| ${t.columns.join(" | ")} |`, `| ${t.columns.map(() => "---").join(" | ")} |`];
+    for (const r of t.rows) lines.push(`| ${t.columns.map((_, i) => r[i] ?? "").join(" | ")} |`);
+    return lines.join("\n");
+  }
+
+  function summaryMarkdown(): string {
+    if (!result) return "";
+    const parts: string[] = [];
+    if (result.summary) parts.push(result.summary);
+    if (result.keyFindings.length) parts.push(result.keyFindings.map((f) => `- ${f}`).join("\n"));
+    const t = tableToMarkdown(result.table);
+    if (t) parts.push(t);
+    if (result.citations.length) parts.push(`Cited: ${result.citations.join("; ")}`);
+    return parts.join("\n\n");
+  }
+
+  return (
+    <div>
+      <Label className="text-xs">Source</Label>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {(
+          [
+            { key: "paste", label: "Paste CSV" },
+            { key: "upload", label: "Uploaded file" },
+            { key: "section", label: "Section text" },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => setSource(opt.key)}
+            className={`rounded-md border px-2 py-1 text-xs ${source === opt.key ? "border-primary bg-primary/10" : "border-border bg-background"}`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {source === "paste" && (
+        <Textarea
+          rows={5}
+          className="mt-3 font-mono text-xs"
+          value={csv}
+          onChange={(e) => setCsv(e.target.value)}
+          placeholder={"Group,Pre,Post\nControl,12,14\nTreatment,11,19"}
+        />
+      )}
+
+      {source === "upload" && (
+        <div className="mt-3 space-y-2">
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/40 p-3 text-xs">
+            <Upload className="h-3 w-3" />
+            {uploading ? "Uploading…" : "Upload CSV / XLSX"}
+            <input
+              type="file"
+              accept=".csv,.tsv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadFile(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {dataFiles.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">No data files yet. Upload a .csv or .xlsx above.</p>
+          ) : (
+            <ul className="space-y-1 text-xs">
+              {dataFiles.map((f: any) => (
+                <li key={f.id}>
+                  <button
+                    onClick={() => setSelectedUploadId(f.id)}
+                    className={`flex w-full items-center justify-between rounded-md border px-2 py-1 text-left ${selectedUploadId === f.id ? "border-primary bg-primary/10" : "border-border"}`}
+                  >
+                    <span className="truncate">{f.name}</span>
+                    <span className="ml-2 text-[10px] text-muted-foreground">{Math.round((f.size ?? 0) / 1024)} KB</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {source === "section" && (
+        <p className="mt-3 rounded-md bg-muted/40 p-2 text-[11px] text-muted-foreground">
+          Uses the current section's outline + draft. Best for extracting findings from a written Results section.
+        </p>
+      )}
+
+      <Textarea
+        rows={2}
+        className="mt-3"
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder="Optional: e.g. Compare pre/post means by group, suggest a bar chart"
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <VoiceCapture label="Dictate analysis" onTranscript={(t) => setPrompt((p) => (p + " " + t).trim())} />
+        <Button size="sm" onClick={analyze} disabled={running}>
+          {running ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <BarChart3 className="mr-2 h-3 w-3" />}
+          Summarize & propose visuals
+        </Button>
+      </div>
+
+      {result && (
+        <div className="mt-4 space-y-3">
+          <div className="rounded-md border border-border bg-background p-3">
+            <div className="text-sm font-medium">Summary</div>
+            {result.summary && <p className="mt-1 whitespace-pre-wrap text-xs">{result.summary}</p>}
+            {result.keyFindings.length > 0 && (
+              <ul className="mt-2 ml-4 list-disc space-y-1 text-xs">
+                {result.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
+              </ul>
+            )}
+            {result.citations.length > 0 && (
+              <p className="mt-2 text-[11px] text-muted-foreground">Cited: {result.citations.join("; ")}</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => onInsert(summaryMarkdown())} disabled={!sectionId}>
+                Insert into section
+              </Button>
+              <Button size="sm" variant="outline" onClick={attachSummary}>
+                Attach analysis to export
+              </Button>
+            </div>
+          </div>
+
+          {result.table.columns.length > 0 && result.table.rows.length > 0 && (
+            <div className="rounded-md border border-border bg-background p-3">
+              <div className="text-sm font-medium">{result.table.title}</div>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-muted">
+                    <tr>{result.table.columns.map((c) => <th key={c} className="p-2 font-medium">{c}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {result.table.rows.map((r, i) => (
+                      <tr key={i} className="border-t border-border">
+                        {result.table.columns.map((_, j) => <td key={j} className="p-2 align-top">{r[j] ?? ""}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => onInsert(tableToMarkdown(result.table))} disabled={!sectionId}>
+                Insert table
+              </Button>
+            </div>
+          )}
+
+          {result.recommendedCharts.map((c, i) => (
+            <div key={i} className="rounded-md border border-border bg-background p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">{c.title}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {c.type} · {c.x} → {c.y}
+                  </div>
+                </div>
+              </div>
+              {c.rationale && <p className="mt-1 text-xs text-muted-foreground">{c.rationale}</p>}
+              <DatasetChart chart={c} />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => attachChart(c)}>
+                  Attach to export
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachedVisualsList({ projectId }: { projectId: string }) {
+  const list = useServerFn(listVisuals);
+  const del = useServerFn(deleteVisual);
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["visuals", projectId], queryFn: () => list({ data: { project_id: projectId } }) });
+  const items = (q.data ?? []) as AttachedVisual[];
+  if (!items.length) return null;
+  return (
+    <div className="mt-6 border-t border-border pt-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-xs font-medium">Attached to export ({items.length})</div>
+      </div>
+      <ul className="space-y-1 text-xs">
+        {items.map((v) => (
+          <li key={v.id} className="flex items-center justify-between rounded-md border border-border bg-background px-2 py-1">
+            <div className="min-w-0">
+              <div className="truncate">{v.title}</div>
+              <div className="text-[10px] text-muted-foreground">{v.kind}</div>
+            </div>
+            <button
+              className="text-muted-foreground hover:text-destructive"
+              onClick={async () => {
+                await del({ data: { id: v.id } });
+                qc.invalidateQueries({ queryKey: ["visuals", projectId] });
+              }}
+              title="Remove"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DatasetChart({ chart }: { chart: RecommendedChart }) {
+  const data = chart.data.length ? chart.data : [];
+  if (!data.length) {
+    return <div className="mt-3 rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">No preview data.</div>;
+  }
+  const pieColors = ["#6366f1", "#22c55e", "#eab308", "#ef4444", "#06b6d4", "#a855f7", "#f97316", "#3b82f6"];
+  return (
+    <div className="mt-3 h-56 rounded-md border border-border p-2">
+      <ResponsiveContainer width="100%" height="100%">
+        {chart.type === "line" ? (
+          <LineChart data={data} margin={{ top: 8, right: 8, bottom: 36, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" angle={-30} textAnchor="end" interval={0} height={52} tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot />
+          </LineChart>
+        ) : chart.type === "pie" ? (
+          <PieChart>
+            <Tooltip />
+            <Pie data={data} dataKey="value" nameKey="label" outerRadius={80} label={{ fontSize: 10 }}>
+              {data.map((_, i) => <Cell key={i} fill={pieColors[i % pieColors.length]} />)}
+            </Pie>
+          </PieChart>
+        ) : chart.type === "scatter" ? (
+          <ScatterChart margin={{ top: 8, right: 8, bottom: 36, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" name={chart.x} tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} height={52} />
+            <YAxis dataKey="value" name={chart.y} tick={{ fontSize: 10 }} />
+            <ZAxis range={[60, 60]} />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+            <Scatter data={data} fill="hsl(var(--primary))" />
+          </ScatterChart>
+        ) : (
+          <BarChart data={data} margin={{ top: 8, right: 8, bottom: 36, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" angle={-30} textAnchor="end" interval={0} height={52} tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} />
+            <Tooltip />
+            <Bar dataKey="value" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -1223,6 +1695,7 @@ function VisualPreview({ visual }: { visual: GeneratedVisual }) {
   }
   return <pre className="mt-3 whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">{visual.markdown}</pre>;
 }
+
 
 function JournalsPanel({ projectId, journals, onRefresh }: { projectId: string; journals: any[]; onRefresh: () => void }) {
   const [topic, setTopic] = useState("");
