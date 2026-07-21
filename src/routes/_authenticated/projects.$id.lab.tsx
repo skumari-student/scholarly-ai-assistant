@@ -181,10 +181,11 @@ function AnalysisPanel({ projectId, datasets, onAttached }: { projectId: string;
   const runQuant = useServerFn(runQuantAnalysis);
   const runQual = useServerFn(runQualAnalysis);
   const attach = useServerFn(attachVisual);
+  const getCols = useServerFn(getDatasetColumnTypes);
 
   const colTypes = useQuery({
     queryKey: ["colTypes", selectedId],
-    queryFn: () => useServerFn(getDatasetColumnTypes)({ data: { dataset_id: selectedId } } as any),
+    queryFn: () => getCols({ data: { dataset_id: selectedId } }),
     enabled: !!selectedId && selected?.kind !== "qual",
   });
 
