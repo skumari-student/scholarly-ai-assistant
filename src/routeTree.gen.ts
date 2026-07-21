@@ -16,6 +16,9 @@ import { Route as ApiSttRouteImport } from './routes/api/stt'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedProjectsNewRouteImport } from './routes/_authenticated/projects.new'
 import { Route as AuthenticatedProjectsIdIndexRouteImport } from './routes/_authenticated/projects.$id.index'
+import { Route as AuthenticatedProjectsIdSubmitRouteImport } from './routes/_authenticated/projects.$id.submit'
+import { Route as AuthenticatedProjectsIdLabRouteImport } from './routes/_authenticated/projects.$id.lab'
+import { Route as AuthenticatedProjectsIdJournalsRouteImport } from './routes/_authenticated/projects.$id.journals'
 import { Route as AuthenticatedProjectsIdExportRouteImport } from './routes/_authenticated/projects.$id.export'
 
 const AuthRoute = AuthRouteImport.update({
@@ -54,6 +57,24 @@ const AuthenticatedProjectsIdIndexRoute =
     path: '/projects/$id/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProjectsIdSubmitRoute =
+  AuthenticatedProjectsIdSubmitRouteImport.update({
+    id: '/projects/$id/submit',
+    path: '/projects/$id/submit',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProjectsIdLabRoute =
+  AuthenticatedProjectsIdLabRouteImport.update({
+    id: '/projects/$id/lab',
+    path: '/projects/$id/lab',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProjectsIdJournalsRoute =
+  AuthenticatedProjectsIdJournalsRouteImport.update({
+    id: '/projects/$id/journals',
+    path: '/projects/$id/journals',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedProjectsIdExportRoute =
   AuthenticatedProjectsIdExportRouteImport.update({
     id: '/projects/$id/export',
@@ -68,6 +89,9 @@ export interface FileRoutesByFullPath {
   '/api/stt': typeof ApiSttRoute
   '/projects/new': typeof AuthenticatedProjectsNewRoute
   '/projects/$id/export': typeof AuthenticatedProjectsIdExportRoute
+  '/projects/$id/journals': typeof AuthenticatedProjectsIdJournalsRoute
+  '/projects/$id/lab': typeof AuthenticatedProjectsIdLabRoute
+  '/projects/$id/submit': typeof AuthenticatedProjectsIdSubmitRoute
   '/projects/$id/': typeof AuthenticatedProjectsIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -77,6 +101,9 @@ export interface FileRoutesByTo {
   '/api/stt': typeof ApiSttRoute
   '/projects/new': typeof AuthenticatedProjectsNewRoute
   '/projects/$id/export': typeof AuthenticatedProjectsIdExportRoute
+  '/projects/$id/journals': typeof AuthenticatedProjectsIdJournalsRoute
+  '/projects/$id/lab': typeof AuthenticatedProjectsIdLabRoute
+  '/projects/$id/submit': typeof AuthenticatedProjectsIdSubmitRoute
   '/projects/$id': typeof AuthenticatedProjectsIdIndexRoute
 }
 export interface FileRoutesById {
@@ -88,6 +115,9 @@ export interface FileRoutesById {
   '/api/stt': typeof ApiSttRoute
   '/_authenticated/projects/new': typeof AuthenticatedProjectsNewRoute
   '/_authenticated/projects/$id/export': typeof AuthenticatedProjectsIdExportRoute
+  '/_authenticated/projects/$id/journals': typeof AuthenticatedProjectsIdJournalsRoute
+  '/_authenticated/projects/$id/lab': typeof AuthenticatedProjectsIdLabRoute
+  '/_authenticated/projects/$id/submit': typeof AuthenticatedProjectsIdSubmitRoute
   '/_authenticated/projects/$id/': typeof AuthenticatedProjectsIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -99,6 +129,9 @@ export interface FileRouteTypes {
     | '/api/stt'
     | '/projects/new'
     | '/projects/$id/export'
+    | '/projects/$id/journals'
+    | '/projects/$id/lab'
+    | '/projects/$id/submit'
     | '/projects/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -108,6 +141,9 @@ export interface FileRouteTypes {
     | '/api/stt'
     | '/projects/new'
     | '/projects/$id/export'
+    | '/projects/$id/journals'
+    | '/projects/$id/lab'
+    | '/projects/$id/submit'
     | '/projects/$id'
   id:
     | '__root__'
@@ -118,6 +154,9 @@ export interface FileRouteTypes {
     | '/api/stt'
     | '/_authenticated/projects/new'
     | '/_authenticated/projects/$id/export'
+    | '/_authenticated/projects/$id/journals'
+    | '/_authenticated/projects/$id/lab'
+    | '/_authenticated/projects/$id/submit'
     | '/_authenticated/projects/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -179,6 +218,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsIdIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/projects/$id/submit': {
+      id: '/_authenticated/projects/$id/submit'
+      path: '/projects/$id/submit'
+      fullPath: '/projects/$id/submit'
+      preLoaderRoute: typeof AuthenticatedProjectsIdSubmitRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/projects/$id/lab': {
+      id: '/_authenticated/projects/$id/lab'
+      path: '/projects/$id/lab'
+      fullPath: '/projects/$id/lab'
+      preLoaderRoute: typeof AuthenticatedProjectsIdLabRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/projects/$id/journals': {
+      id: '/_authenticated/projects/$id/journals'
+      path: '/projects/$id/journals'
+      fullPath: '/projects/$id/journals'
+      preLoaderRoute: typeof AuthenticatedProjectsIdJournalsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/projects/$id/export': {
       id: '/_authenticated/projects/$id/export'
       path: '/projects/$id/export'
@@ -193,6 +253,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedProjectsNewRoute: typeof AuthenticatedProjectsNewRoute
   AuthenticatedProjectsIdExportRoute: typeof AuthenticatedProjectsIdExportRoute
+  AuthenticatedProjectsIdJournalsRoute: typeof AuthenticatedProjectsIdJournalsRoute
+  AuthenticatedProjectsIdLabRoute: typeof AuthenticatedProjectsIdLabRoute
+  AuthenticatedProjectsIdSubmitRoute: typeof AuthenticatedProjectsIdSubmitRoute
   AuthenticatedProjectsIdIndexRoute: typeof AuthenticatedProjectsIdIndexRoute
 }
 
@@ -200,6 +263,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedProjectsNewRoute: AuthenticatedProjectsNewRoute,
   AuthenticatedProjectsIdExportRoute: AuthenticatedProjectsIdExportRoute,
+  AuthenticatedProjectsIdJournalsRoute: AuthenticatedProjectsIdJournalsRoute,
+  AuthenticatedProjectsIdLabRoute: AuthenticatedProjectsIdLabRoute,
+  AuthenticatedProjectsIdSubmitRoute: AuthenticatedProjectsIdSubmitRoute,
   AuthenticatedProjectsIdIndexRoute: AuthenticatedProjectsIdIndexRoute,
 }
 
