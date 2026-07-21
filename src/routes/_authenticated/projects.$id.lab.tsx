@@ -16,7 +16,7 @@ import { listDatasets, registerDataset, deleteDataset, type DatasetRow } from "@
 import { runQuantAnalysis, getDatasetColumnTypes, type QuantResult, type QuantMethod } from "@/lib/ai/quant.functions";
 import { runQualAnalysis, type QualResult } from "@/lib/ai/qual.functions";
 import { attachVisual, listVisuals, deleteVisual } from "@/lib/visuals.functions";
-import { listUploads, createUploadUrl, recordUpload } from "@/lib/uploads.functions";
+import { createUploadUrl, recordUpload } from "@/lib/uploads.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
 
