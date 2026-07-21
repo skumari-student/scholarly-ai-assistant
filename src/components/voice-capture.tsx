@@ -83,6 +83,7 @@ export function VoiceCapture({
       const decoder = new TextDecoder();
       let buffer = "";
       let full = "";
+      let deltas = "";
       const processEvents = (raw: string) => {
         const events = raw.split("\n\n");
         for (const ev of events) {
@@ -93,7 +94,8 @@ export function VoiceCapture({
           try {
             const obj = JSON.parse(payload);
             if (obj.type === "transcript.text.done" && obj.text) full = obj.text;
-            else if (obj.type === "transcript.text.delta" && obj.delta && !full) full += obj.delta;
+            else if (obj.type === "transcript.text.delta" && typeof obj.delta === "string") deltas += obj.delta;
+            else if (typeof obj.text === "string" && !full) full = obj.text;
           } catch {
             /* ignore malformed partial event */
           }
