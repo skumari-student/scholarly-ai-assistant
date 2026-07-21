@@ -944,6 +944,20 @@ function TopicsPanel({
       <Textarea rows={2} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder="Describe area of interest / keywords" />
       <div className="mt-2 flex flex-wrap gap-2">
         <VoiceCapture onTranscript={(t) => setBrief((b) => (b + " " + t).trim())} />
+        <VoiceCapture
+          label="Voice: suggest now"
+          onCommand={async (t) => {
+            setBrief(t);
+            setRunning(true);
+            try {
+              await gen({ data: { project_id: projectId, brief: t } });
+              onRefresh();
+              toast.success("Topics generated from voice");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Failed");
+            } finally { setRunning(false); }
+          }}
+        />
         <Button size="sm" onClick={generate} disabled={running}>
           {running ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <Sparkles className="mr-2 h-3 w-3" />} Suggest topics
         </Button>
