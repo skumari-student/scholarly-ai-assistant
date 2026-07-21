@@ -41,6 +41,13 @@ import {
   extractFromNarration,
 } from "@/lib/ai/voice.functions";
 import { generateVisual, type GeneratedVisual } from "@/lib/ai/visuals.functions";
+import {
+  analyzeDataset,
+  analyzeSectionText,
+  type AnalysisResult,
+  type RecommendedChart,
+} from "@/lib/ai/analysis.functions";
+import { attachVisual, listVisuals, deleteVisual, type AttachedVisual } from "@/lib/visuals.functions";
 import { addReference, deleteReference, importBibtex } from "@/lib/refs.functions";
 import {
   listUploads,
@@ -53,8 +60,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatReferenceList, inTextCitation, type Reference } from "@/lib/citations";
 import { CITATION_STYLES, type CitationStyle } from "@/lib/doc-templates";
 import { countWords } from "@/lib/text";
-import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2, X, BarChart3 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  Cell,
+  Scatter,
+  ScatterChart,
+  ZAxis,
+  Tooltip,
+} from "recharts";
 
 export const Route = createFileRoute("/_authenticated/projects/$id/")({
   head: () => ({ meta: [{ title: "Editor — ScholarlyWrite AI" }] }),
