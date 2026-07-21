@@ -7,12 +7,18 @@ export const Route = createFileRoute("/api/stt")({
       POST: async ({ request }) => {
         const key = process.env.LOVABLE_API_KEY;
         if (!key) return new Response("LOVABLE_API_KEY missing", { status: 500 });
+        const contentType = request.headers.get("content-type") ?? "";
+        if (!contentType.includes("multipart/form-data")) return new Response("Expected multipart upload", { status: 400 });
         const form = await request.formData();
         const file = form.get("file");
         if (!(file instanceof File)) return new Response("Missing file", { status: 400 });
+        if (file.size < 2048) return new Response("Recording was empty or too short", { status: 400 });
+        if (file.size > 25 * 1024 * 1024) return new Response("Recording is too large", { status: 413 });
+        const mime = file.type.split(";")[0] || "audio/wav";
+        if (!mime.startsWith("audio/")) return new Response("Upload must be an audio file", { status: 400 });
         const upstream = new FormData();
         upstream.append("model", "openai/gpt-4o-mini-transcribe");
-        upstream.append("file", file, file.name || "recording.wav");
+        upstream.append("file", file, file.name || filenameForAudio(mime));
         upstream.append("stream", "true");
         const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
           method: "POST",
@@ -30,3 +36,14 @@ export const Route = createFileRoute("/api/stt")({
     },
   },
 });
+
+function filenameForAudio(mime: string) {
+  const ext: Record<string, string> = {
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+    "audio/mp4": "mp4",
+    "audio/mpeg": "mp3",
+  };
+  return `recording.${ext[mime] ?? "wav"}`;
+}
