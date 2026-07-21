@@ -34,6 +34,7 @@ export const exportProject = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => schema.parse(d))
   .handler(async ({ data, context }) => {
     const { project, sections, refs } = await loadDoc(context.supabase, data.project_id, data.section_ids);
+    if (!project) throw new Error("Project not found");
     const style = project.citation_style as CitationStyle;
 
     if (data.format === "md") {
@@ -89,8 +90,7 @@ export const exportProject = createServerFn({ method: "POST" })
       },
       sections: [{ properties: {}, children }],
     });
-    const buf = await docx.Packer.toBuffer(doc);
-    const b = Buffer.from(buf).toString("base64");
+    const b = await docx.Packer.toBase64String(doc);
     return {
       filename: `${slug(project.title)}.docx`,
       mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
