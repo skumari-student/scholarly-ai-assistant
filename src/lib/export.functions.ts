@@ -221,6 +221,73 @@ ${draftFooter}
         );
       }
     }
+    if (visuals.length) {
+      children.push(
+        new docx.Paragraph({
+          text: "Visuals & Analysis",
+          heading: docx.HeadingLevel.HEADING_1,
+          spacing: { before: 240, after: 120 },
+        }),
+      );
+      for (const v of visuals) {
+        children.push(
+          new docx.Paragraph({
+            text: v.title,
+            heading: docx.HeadingLevel.HEADING_2,
+            spacing: { before: 160, after: 80 },
+          }),
+        );
+        if (v.caption)
+          children.push(new docx.Paragraph({ children: [new docx.TextRun({ text: v.caption, italics: true })], spacing: { after: 80 } }));
+        const p = v.payload || {};
+        if (p.summary) children.push(new docx.Paragraph({ children: [new docx.TextRun(String(p.summary))], spacing: { after: 80 } }));
+        if (Array.isArray(p.keyFindings)) {
+          for (const f of p.keyFindings)
+            children.push(new docx.Paragraph({ children: [new docx.TextRun(`• ${f}`)], spacing: { after: 60 } }));
+        }
+        const table = p.table ?? (p.columns && p.rows ? { columns: p.columns, rows: p.rows } : null);
+        if (table?.columns?.length && table.rows?.length) {
+          const rows = [
+            new docx.TableRow({
+              children: table.columns.map(
+                (c: string) =>
+                  new docx.TableCell({
+                    children: [new docx.Paragraph({ children: [new docx.TextRun({ text: String(c), bold: true })] })],
+                  }),
+              ),
+            }),
+            ...table.rows.map(
+              (r: any[]) =>
+                new docx.TableRow({
+                  children: table.columns.map(
+                    (_: any, i: number) =>
+                      new docx.TableCell({ children: [new docx.Paragraph(String(r[i] ?? ""))] }),
+                  ),
+                }),
+            ),
+          ];
+          children.push(new docx.Table({ rows, width: { size: 100, type: docx.WidthType.PERCENTAGE } }));
+        }
+        const charts = Array.isArray(p.recommendedCharts) ? p.recommendedCharts : [];
+        for (const c of charts) {
+          const line = chartLine(c);
+          if (line)
+            children.push(
+              new docx.Paragraph({
+                children: [new docx.TextRun({ text: line, italics: true })],
+                spacing: { after: 60 },
+              }),
+            );
+        }
+        if (Array.isArray(p.citations) && p.citations.length)
+          children.push(
+            new docx.Paragraph({
+              children: [new docx.TextRun({ text: `Cited: ${p.citations.join("; ")}`, color: "555555" })],
+              spacing: { after: 120 },
+            }),
+          );
+      }
+    }
     if (refs.length) {
       children.push(
         new docx.Paragraph({
