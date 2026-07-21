@@ -56,7 +56,7 @@ import { countWords } from "@/lib/text";
 import { Pin, Trash2, Loader2, Sparkles, FileDown, Save, Check, Quote, Table2, ExternalLink, Upload, Paperclip, Copy, Link2 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
-export const Route = createFileRoute("/_authenticated/projects/$id")({
+export const Route = createFileRoute("/_authenticated/projects/$id/")({
   head: () => ({ meta: [{ title: "Editor — ScholarlyWrite AI" }] }),
   component: Workspace,
 });
