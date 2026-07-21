@@ -165,6 +165,8 @@ export const exportProject = createServerFn({ method: "POST" })
   .meta { color:#666; font-size:10pt; margin-bottom:18pt; }
   .draft-note { position: fixed; bottom: 12pt; left: 0; right: 0; text-align:center; font-size: 10pt; color:#a00; }
   .ref { text-indent: -1.5em; padding-left: 1.5em; }
+  table.viz { border-collapse: collapse; margin: 8pt 0 12pt; font-size: 10pt; }
+  table.viz th { background:#f4f4f4; text-align:left; }
   ${draftCss}
   @media print { body { padding: 0; max-width: none; } }
 </style></head><body>
