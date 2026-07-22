@@ -27,7 +27,7 @@ function firstAuthorLast(authors: string): string {
   return parts[parts.length - 1];
 }
 
-export function inTextCitation(ref: Reference, style: CitationStyle): string {
+export function inTextCitation(ref: Reference, style: CitationStyle, index?: number): string {
   const last = firstAuthorLast(ref.authors);
   const authors = splitAuthors(ref.authors);
   const y = ref.year ?? "n.d.";
@@ -41,7 +41,7 @@ export function inTextCitation(ref: Reference, style: CitationStyle): string {
     case "Chicago":
       return `(${last} ${y})`;
     case "IEEE":
-      return `[${ref.cite_key}]`;
+      return index != null ? `[${index + 1}]` : `[${ref.cite_key}]`;
   }
 }
 
@@ -58,12 +58,15 @@ export function formatReference(ref: Reference, style: CitationStyle): string {
     case "Chicago":
       return `${ref.authors}. ${y}. "${ref.title}." ${container}. ${publisher}. ${doi}`.trim();
     case "IEEE":
-      return `[${ref.cite_key}] ${ref.authors}, "${ref.title}," ${container}, ${publisher}, ${y}. ${doi}`.trim();
+      return `[${ref.cite_key}] ${ref.authors}, "${ref.title}," ${container}, ${publisher}, ${y}. ${doi}`.trim().replace(/,\s*\./, ".");
   }
 }
 
 export function formatReferenceList(refs: Reference[], style: CitationStyle): string {
   const sorted = [...refs].sort((a, b) => firstAuthorLast(a.authors).localeCompare(firstAuthorLast(b.authors)));
+  if (style === "IEEE") {
+    return sorted.map((r, i) => formatReference({ ...r, cite_key: String(i + 1) }, style)).join("\n\n");
+  }
   return sorted.map((r) => formatReference(r, style)).join("\n\n");
 }
 

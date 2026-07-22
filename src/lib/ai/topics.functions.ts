@@ -33,7 +33,8 @@ export const generateTopics = createServerFn({ method: "POST" })
       research_questions: String(t.research_questions ?? "").slice(0, 1000),
       trend_note: String(t.trend_note ?? "").slice(0, 500),
     }));
-    if (rows.length) await supabase.from("topics").insert(rows);
+    if (!rows.length) throw new Error("AI returned no parseable topics. Try rephrasing your brief.");
+    await supabase.from("topics").insert(rows);
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "topics", model });
     return { count: rows.length };
   });
@@ -86,18 +87,18 @@ export const brainstormIdeas = createServerFn({ method: "POST" })
     const prompt = `Discipline: ${project.discipline || "general"}. Document type: ${project.doc_type}. Area: ${data.area}${data.keywords ? `\nKeywords: ${data.keywords}` : ""}`;
     const result = await chatJSON<BrainstormResult>({ model, system, prompt, temperature: 0.8 });
     await supabase.from("ai_usage").insert({ project_id: data.project_id, user_id: userId, kind: "brainstorm", model });
-    return {
-      ideas: (result.ideas ?? []).slice(0, 12).map((s) => String(s).slice(0, 400)),
-      problems: (result.problems ?? []).slice(0, 12).map((s) => String(s).slice(0, 400)),
-      questions: (result.questions ?? []).slice(0, 12).map((s) => String(s).slice(0, 400)),
-    };
+    const ideas = (result.ideas ?? []).slice(0, 12).map((s) => String(s).slice(0, 400));
+    const problems = (result.problems ?? []).slice(0, 12).map((s) => String(s).slice(0, 400));
+    const questions = (result.questions ?? []).slice(0, 12).map((s) => String(s).slice(0, 400));
+    if (!ideas.length && !problems.length && !questions.length) throw new Error("AI returned no brainstorm results. Try adding more detail to your area.");
+    return { ideas, problems, questions };
   });
 
 // --- Topic extraction from text or narration ---
 
 const extractSchema = z.object({
   project_id: z.string().uuid(),
-  text: z.string().min(10).max(8000),
+  text: z.string().min(3).max(8000),
 });
 
 interface ExtractTopicResult {

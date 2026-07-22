@@ -57,13 +57,13 @@ export const runWritingAction = createServerFn({ method: "POST" })
     let intensiveDirective = "";
 
     const style = project.citation_style as CitationStyle;
-    if ((data.intensive && isLitReview) || data.action === "cite") {
+    if ((data.intensive && section.content?.trim()) || data.action === "cite") {
       const { data: refsData } = await supabase.from("refs").select("*").eq("project_id", project.id).order("created_at");
       const refs = (refsData ?? []) as Reference[];
       if (refs && refs.length) {
         const referenceLibraryBlock = refs
           .slice(0, 50)
-          .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
+          .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style, index)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
           .join("\n");
         refsBlock = `\n\nReference library (use these sources only; do not invent references):\n${referenceLibraryBlock}\n\nFormatted reference list:\n${formatReferenceList(refs, style)}`;
         intensiveDirective = data.action === "cite"
@@ -128,7 +128,7 @@ export const citeAllSections = createServerFn({ method: "POST" })
     const style = project.citation_style as CitationStyle;
     const refsBlock = refs
       .slice(0, 50)
-      .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
+      .map((r, index) => `${style === "IEEE" ? `[${index + 1}]` : inTextCitation(r, style, index)} ${r.authors}${r.year ? ` (${r.year})` : ""}. ${r.title}${r.container ? `. ${r.container}` : ""}${r.doi ? `. DOI: ${r.doi}` : r.url ? `. ${r.url}` : ""}`)
       .join("\n");
     let updated = 0;
     for (const section of sections ?? []) {

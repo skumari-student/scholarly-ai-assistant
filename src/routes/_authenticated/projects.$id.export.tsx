@@ -235,15 +235,26 @@ function openPrintWindow(html: string) {
   doc.open();
   doc.write(html);
   doc.close();
-  const cleanup = () => setTimeout(() => iframe.remove(), 500);
+  const cleanup = () => setTimeout(() => iframe.remove(), 1000);
   const trigger = () => {
     try {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
+    } catch {
+      // Fallback: open HTML in a new tab so the user can print manually
+      const w = window.open();
+      if (w) { w.document.write(html); w.document.close(); }
+      else toast.error("Pop-up blocked — allow pop-ups to print to PDF");
     } finally {
       cleanup();
     }
   };
-  if (doc.readyState === "complete") setTimeout(trigger, 100);
-  else iframe.onload = () => setTimeout(trigger, 100);
+  const tryPrint = () => {
+    const d = iframe.contentDocument;
+    if (d && d.readyState === "complete") setTimeout(trigger, 350);
+    else setTimeout(tryPrint, 200);
+  };
+  iframe.onload = () => setTimeout(trigger, 350);
+  // Also poll in case onload doesn't fire (some browsers with srcdoc)
+  setTimeout(tryPrint, 300);
 }

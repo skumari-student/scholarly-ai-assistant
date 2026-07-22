@@ -20,20 +20,27 @@ export const Route = createFileRoute("/api/stt")({
         const mime = file.type.split(";")[0] || "audio/wav";
         if (!mime.startsWith("audio/")) return new Response("Upload must be an audio file", { status: 400 });
         console.log("[stt] uploading to gateway", { name: file.name, size: file.size, mime });
-        const upstream = new FormData();
-        upstream.append("model", "openai/gpt-4o-mini-transcribe");
-        upstream.append("file", file, file.name || filenameForAudio(mime));
-        upstream.append("stream", "true");
-        const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${key}` },
-          body: upstream,
-        });
-        console.log("[stt] gateway response", { status: res.status, contentType: res.headers.get("content-type") });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          console.error("[stt] gateway error", res.status, t.slice(0, 500));
-          return new Response(`Transcription failed: ${res.status} ${t.slice(0, 200)}`, { status: res.status });
+        const models = ["openai/gpt-4o-mini-transcribe", "openai/whisper-1"];
+        let res: Response | null = null;
+        let lastError = "";
+        for (const model of models) {
+          const upstream = new FormData();
+          upstream.append("model", model);
+          upstream.append("file", file, file.name || filenameForAudio(mime));
+          upstream.append("stream", "true");
+          res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}` },
+            body: upstream,
+          });
+          console.log("[stt] gateway response", { model, status: res.status, contentType: res.headers.get("content-type") });
+          if (res.ok) break;
+          lastError = await res.text().catch(() => "");
+          console.error("[stt] gateway error", model, res.status, lastError.slice(0, 500));
+          res = null;
+        }
+        if (!res || !res.ok) {
+          return new Response(`Transcription failed: ${lastError.slice(0, 200)}`, { status: 502 });
         }
         const upstreamType = res.headers.get("content-type") ?? "";
         if (upstreamType.includes("application/json")) {

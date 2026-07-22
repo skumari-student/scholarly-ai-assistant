@@ -33,8 +33,7 @@ export const exportProject = createServerFn({ method: "POST" })
         .from("project_visuals")
         .select("*")
         .eq("project_id", data.project_id)
-        .order("order", { ascending: true })
-        .order("created_at", { ascending: true }),
+        .order("order", { ascending: true }),
     ]);
     if (!project) throw new Error("Project not found");
     const sections: Section[] =
@@ -185,7 +184,12 @@ ${draftFooter}
     }
 
     // DOCX
-    const docx = await import("docx");
+    let docx: typeof import("docx");
+    try {
+      docx = await import("docx");
+    } catch (e) {
+      throw new Error("DOCX export library failed to load: " + (e instanceof Error ? e.message : String(e)));
+    }
     const children: any[] = [];
     if (data.draft) {
       children.push(
