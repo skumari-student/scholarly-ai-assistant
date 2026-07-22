@@ -273,9 +273,11 @@ function ProjectView({
   }
 
   async function changeStyle(style: CitationStyle) {
+    const hadRefs = refs.length > 0;
     await saveNow();
     await updateStyle({ data: { id: project.id, citation_style: style } });
     toast.success(`Citation style: ${style}`);
+    if (hadRefs) toast.info("Run \u201cCite all sections\u201d to reformat existing citations.");
     onRefresh();
   }
 
